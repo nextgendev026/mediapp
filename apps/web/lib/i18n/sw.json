@@ -1,0 +1,17 @@
+{
+  "home.greeting": "Habari",
+  "home.subtitle": "Afya yako, imefikishwa",
+  "action.book_consultation": "Weka miadi",
+  "action.pay_with_mpesa": "Lipa na M-PESA",
+  "action.request_refill": "Omba kuongeza",
+  "action.track_order": "Fuatilia agizo",
+  "action.upload_prescription": "Pakia risala ya dawa",
+  "order.status.pending": "Inasubiri",
+  "order.status.dispatched": "Imetumwa kwa mwendeshaji",
+  "order.status.in_transit": "Inaenda",
+  "order.status.delivered": "Imefikishwa",
+  "consent.phi_processing": "Ruhusu matumizi ya data yangu ya afya kwa matibabu",
+  "common.save": "Hifadhi mabadiliko",
+  "common.cancel": "Ghairi",
+  "common.continue": "Endelea"
+}

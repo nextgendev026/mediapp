@@ -1,0 +1,496 @@
+openapi: 3.0.3
+info:
+  title: AfyaCommerce Internal API
+  version: 1.0.0
+  description: Text-first API contract for patient and rider mobile clients.
+servers:
+  - url: /
+    description: Same-origin internal API
+security:
+  - bearerAuth: []
+paths:
+  /api/auth/otp/request:
+    post:
+      security: []
+      summary: Request a phone OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone:
+                  type: string
+                  example: "+254712345678"
+      responses:
+        "202":
+          description: OTP accepted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /api/auth/otp/verify:
+    post:
+      security: []
+      summary: Verify a phone OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, code]
+              properties:
+                phone:
+                  type: string
+                code:
+                  type: string
+                  minLength: 4
+                  maxLength: 8
+      responses:
+        "200":
+          description: Authenticated session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/catalog/products:
+    get:
+      summary: Browse the product catalog
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+        - in: query
+          name: category
+          schema:
+            type: string
+            enum: [prescription, otc, device, supplement]
+        - in: query
+          name: county
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Product list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Product"
+  /api/checkout/orders:
+    post:
+      summary: Create an order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderRequest"
+      responses:
+        "201":
+          description: Created order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /api/mpesa/stk-push:
+    post:
+      summary: Initiate an M-PESA STK push
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StkPushRequest"
+      responses:
+        "200":
+          description: Checkout request
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [CheckoutRequestID]
+                properties:
+                  CheckoutRequestID:
+                    type: string
+                  CustomerMessage:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /api/mpesa/callback:
+    post:
+      security: []
+      summary: Receive the M-PESA STK push callback
+      description: Called by Safaricom Daraja after the customer approves or cancels the payment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Plain acknowledgement expected by Daraja
+  /api/mpesa/status/{checkoutRequestId}:
+    get:
+      summary: Read normalized payment status
+      parameters:
+        - in: path
+          name: checkoutRequestId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Payment state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [pending, succeeded, failed, unknown]
+                  receipt:
+                    type: string
+  /dispatch/availability:
+    post:
+      summary: Update rider availability
+      description: >-
+        The rider is taken from the authenticated Supabase session, never from the
+        request body. Rejected with 403 when the rider licence has expired.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [isAvailable]
+              properties:
+                isAvailable:
+                  type: boolean
+                lat:
+                  type: number
+                lng:
+                  type: number
+      responses:
+        "200":
+          description: Updated availability
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /dispatch/orders:
+    get:
+      summary: List the authenticated rider's assigned deliveries
+      responses:
+        "200":
+          description: Assigned deliveries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AssignedDelivery"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /dispatch/orders/{orderId}/proof/photo:
+    post:
+      summary: Upload a proof-of-delivery photo
+      description: >-
+        Stores the base64-encoded image in the PROOF_STORAGE_BUCKET Supabase Storage
+        bucket and records the public URL on the order. Riders and staff only.
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [image, contentType]
+              properties:
+                image:
+                  type: string
+                  description: Base64-encoded image bytes without a data URL prefix
+                contentType:
+                  type: string
+                  enum: [image/jpeg, image/png, image/webp]
+      responses:
+        "200":
+          description: Stored photo URL
+        "413":
+          $ref: "#/components/responses/BadRequest"
+  /dispatch/offers/{offerId}/accept:
+    post:
+      summary: Accept a dispatch offer
+      parameters:
+        - in: path
+          name: offerId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Accepted offer
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /dispatch/offers/{offerId}/decline:
+    post:
+      summary: Decline a dispatch offer
+      parameters:
+        - in: path
+          name: offerId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Offer released
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /dispatch/deliveries/{deliveryId}/events:
+    post:
+      summary: Record a chain-of-custody event
+      parameters:
+        - in: path
+          name: deliveryId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status, occurred_at]
+              properties:
+                status:
+                  type: string
+                  enum: [arrived, picked_up, in_transit, failed, delivered]
+                occurred_at:
+                  type: string
+                  format: date-time
+      responses:
+        "200":
+          description: Event accepted
+  /dispatch/deliveries/{deliveryId}/proof:
+    post:
+      summary: Submit proof of delivery
+      parameters:
+        - in: path
+          name: deliveryId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProofOfDelivery"
+      responses:
+        "201":
+          description: Proof accepted
+        "422":
+          $ref: "#/components/responses/BadRequest"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Session:
+      type: object
+      required: [access_token, role]
+      properties:
+        access_token:
+          type: string
+        role:
+          type: string
+          enum: [patient, provider, pharmacist, admin, rider]
+    Product:
+      type: object
+      required: [id, name, price_kes, stock]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        generic_name:
+          type: string
+        swahili_name:
+          type: string
+        category:
+          type: string
+        price_kes:
+          type: number
+          format: double
+        stock:
+          type: integer
+        requires_prescription:
+          type: boolean
+    OrderRequest:
+      type: object
+      required: [items, delivery]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [product_id, quantity]
+            properties:
+              product_id:
+                type: string
+              quantity:
+                type: integer
+                minimum: 1
+        delivery:
+          type: object
+          required: [phone, landmark, county, method]
+          properties:
+            phone:
+              type: string
+            landmark:
+              type: string
+            county:
+              type: string
+            method:
+              type: string
+              enum: [boda, pickup_point, clinic_collection]
+            latitude:
+              type: number
+              format: double
+            longitude:
+              type: number
+              format: double
+    Order:
+      type: object
+      required: [id, order_number, total_kes, payment_status, delivery_status]
+      properties:
+        id:
+          type: string
+        order_number:
+          type: string
+        total_kes:
+          type: number
+          format: double
+        payment_status:
+          type: string
+        delivery_status:
+          type: string
+    StkPushRequest:
+      type: object
+      required: [order_id, order_number, phone, amount]
+      properties:
+        order_id:
+          type: string
+        order_number:
+          type: string
+        phone:
+          type: string
+        amount:
+          type: number
+          format: double
+          minimum: 1
+    ProofOfDelivery:
+      type: object
+      required: [otp_verified, location, captured_at]
+      properties:
+        photo_reference:
+          type: string
+          description: >-
+            Optional. Public URL returned by POST /dispatch/orders/{orderId}/proof/photo.
+        otp_verified:
+          type: boolean
+        recipient_name:
+          type: string
+        relationship:
+          type: string
+          enum: [self, family, neighbour, reception, other]
+        relationship_note:
+          type: string
+        location:
+          type: object
+          required: [latitude, longitude]
+          properties:
+            latitude:
+              type: number
+              format: double
+            longitude:
+              type: number
+              format: double
+        captured_at:
+          type: string
+          format: date-time
+    AssignedDelivery:
+      type: object
+      required: [id, order_number, delivery_status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        order_number:
+          type: string
+        delivery_status:
+          type: string
+          enum: [pending, confirmed, assigned, picked_up, in_transit, delivered, failed]
+        delivery_address:
+          type: object
+          properties:
+            county:
+              type: string
+            landmark:
+              type: string
+            phone:
+              type: string
+        proof_of_delivery:
+          type: object
+          nullable: true
+          properties:
+            photo_url:
+              type: string
+        pharmacy:
+          type: object
+          properties:
+            name:
+              type: string
+            physical_address:
+              type: string
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+    Unauthorized:
+      description: Authentication required
+    Forbidden:
+      description: The authenticated account is not allowed to perform this action
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+    Conflict:
+      description: State transition conflict

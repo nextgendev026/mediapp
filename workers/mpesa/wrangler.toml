@@ -1,0 +1,7 @@
+name = "afyacommerce-mpesa"
+main = "src/index.ts"
+compatibility_date = "2026-09-25"
+
+[vars]
+ALLOWED_ORIGIN = "https://afyacommerce.co.ke"
+MPESA_ENVIRONMENT = "sandbox"

@@ -1,0 +1,17 @@
+name = "afyacommerce-dispatch"
+main = "src/index.ts"
+compatibility_date = "2026-09-25"
+
+[vars]
+ALLOWED_ORIGIN = "https://afyacommerce.co.ke"
+
+[[kv_namespaces]]
+binding = "DISPATCH_EVENTS"
+id = "REPLACE_WITH_DISPATCH_KV_ID"
+
+[[queues.producers]]
+binding = "SMS_QUEUE"
+queue = "afyacommerce-sms-jobs"
+
+[[queues.consumers]]
+queue = "afyacommerce-dispatch-jobs"

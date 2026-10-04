@@ -1,0 +1,13 @@
+services:
+  postgres:
+    networks:
+      - afyacommerce
+  minio:
+    networks:
+      - afyacommerce
+  caddy:
+    networks:
+      - afyacommerce
+networks:
+  afyacommerce:
+    external: true

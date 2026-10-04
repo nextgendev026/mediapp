@@ -1,0 +1,35 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$SERVICE_DOMAIN} {
+	encode gzip zstd
+
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	handle_path /minio/* {
+		reverse_proxy minio:9000
+	}
+
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle /supabase/* {
+		reverse_proxy supabase:8000
+	}
+
+	handle {
+		respond "AfyaCommerce edge is running" 200
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

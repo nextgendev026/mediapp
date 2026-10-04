@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #1da84a;
+  --color-primary-dark: #168a3c;
+  --color-primary-light: #e8f7ed;
+  --color-secondary: #0066cc;
+  --color-accent: #ff6b35;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #3b82f6;
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-300: #d1d5db;
+  --color-gray-500: #6b7280;
+  --color-gray-700: #374151;
+  --color-gray-900: #111827;
+  --font-sans: 'Inter', 'Roboto', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --touch-target-min: 44px;
+  --focus-ring: 2px solid var(--color-primary);
+  --focus-ring-offset: 2px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-width: 320px;
+  background: var(--color-gray-50);
+  color: var(--color-gray-900);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+::selection {
+  background: #b9ebca;
+  color: #0b3b1d;
+}
+
+@layer base {
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.025em;
+  }
+}
+
+@layer components {
+  .container-shell {
+    width: min(100% - 2rem, 80rem);
+    margin-inline: auto;
+  }
+
+  .surface {
+    border: 1px solid var(--color-gray-200);
+    border-radius: 1rem;
+    background: #fff;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+  }
+
+  .eyebrow {
+    color: var(--color-primary-dark);
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+.low-bandwidth *,
+.low-bandwidth *::before,
+.low-bandwidth *::after {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.01ms !important;
+}
+
+@media (max-width: 640px) {
+  .container-shell {
+    width: min(100% - 1.25rem, 80rem);
+  }
+}

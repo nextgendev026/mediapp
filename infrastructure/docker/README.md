@@ -1,0 +1,1 @@
+# This compose file provides the data plane and edge services for the self-hosted stack. The official Supabase service definitions remain owned by the supabase/docker deployment. Run `docker compose --env-file .env up -d` from this directory after wiring the official stack to the `afyacommerce` network.

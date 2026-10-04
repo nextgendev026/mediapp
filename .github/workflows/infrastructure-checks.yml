@@ -1,0 +1,26 @@
+name: Infrastructure checks
+
+on:
+  push:
+    paths:
+      - 'infrastructure/**'
+  pull_request:
+    paths:
+      - 'infrastructure/**'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate shell scripts
+        run: |
+          find infrastructure/scripts -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+      - name: Validate compose file
+        working-directory: infrastructure/docker
+        run: |
+          cp .env.example .env
+          docker compose config >/dev/null
+      - name: Check documentation paths
+        run: test -f docs/compliance/dpia.md && test -f docs/runbooks/incident-response.md && test -f docs/api/openapi.yaml

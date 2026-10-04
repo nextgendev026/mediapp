@@ -1,0 +1,13 @@
+name = "afyacommerce-ai-triage"
+main = "src/index.ts"
+compatibility_date = "2026-09-25"
+
+[vars]
+ALLOWED_ORIGIN = "https://afyacommerce.co.ke"
+
+[ai]
+binding = "AI"
+
+[[kv_namespaces]]
+binding = "AI_RESPONSE_CACHE"
+id = "REPLACE_WITH_AI_CACHE_KV_ID"

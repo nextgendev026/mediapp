@@ -1,0 +1,8 @@
+environment = "production"
+cloudflare_zone_id = "replace-with-zone-id"
+service_domain = "afyacommerce.co.ke"
+vps_ipv4 = "203.0.113.10"
+vps_ssh_user = "deploy"
+vps_ssh_key_path = "~/.ssh/afyacommerce_deploy"
+enable_vps_bootstrap = false
+backup_bucket = "afyacommerce-backups"

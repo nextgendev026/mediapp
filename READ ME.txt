@@ -1,0 +1,2600 @@
+# AfyaCommerce — Master Build Specification
+
+**Project:** Kenyan E-Commerce Clinic & Pharmaceutical Platform
+**Codename:** AfyaCommerce
+**Version:** 1.0
+**Target Market:** Kenya
+**Document Purpose:** Complete implementation instructions for an AI coding agent
+
+---
+
+## Table of Contents
+
+1. [Project Brief](#1-project-brief)
+2. [Tech Stack](#2-tech-stack)
+3. [Regulatory & Compliance Requirements](#3-regulatory--compliance-requirements)
+4. [Architecture Overview](#4-architecture-overview)
+5. [Repository Structure](#5-repository-structure)
+6. [Database Schema](#6-database-schema)
+7. [Row Level Security Policies](#7-row-level-security-policies)
+8. [Cloudflare Workers](#8-cloudflare-workers)
+9. [Supabase Edge Functions](#9-supabase-edge-functions)
+10. [Web Frontend (Next.js)](#10-web-frontend-nextjs)
+11. [Mobile App (Flutter)](#11-mobile-app-flutter)
+12. [Design System](#12-design-system)
+13. [Mockup Specifications](#13-mockup-specifications)
+14. [Environment Variables](#14-environment-variables)
+15. [Deployment Runbook](#15-deployment-runbook)
+16. [Testing & QA Checklist](#16-testing--qa-checklist)
+17. [Compliance Checklist](#17-compliance-checklist)
+18. [Success Criteria](#18-success-criteria)
+19. [Known Limitations & Risks](#19-known-limitations--risks)
+
+---
+
+## 1. Project Brief
+
+### 1.1 Objective
+
+Build a production-ready, regulation-compliant e-commerce clinic and pharmaceutical web application for the Kenyan market. The platform must support:
+
+- Telehealth consultations (video, chat, voice)
+- E-prescriptions with FHIR R4 compliance
+- Pharmacy inventory and dispensing workflows
+- OTC product and medical device e-commerce
+- M-PESA, Airtel Money, card, and SHA payments
+- Boda-boda–centric last-mile delivery with real-time tracking
+- USSD and SMS fallback for feature phones
+- Full audit trails for PPB and ODPC compliance
+
+### 1.2 Core Design Principles
+
+1. **Data localisation first** — PHI never leaves Kenyan infrastructure
+2. **Mobile-first, data-light** — optimized for 3G/4G and limited data budgets
+3. **Payment-native** — M-PESA is the default, not an add-on
+4. **Address-free logistics** — phone number + landmark is the primary delivery identifier
+5. **Database-level security** — Row Level Security enforces access, not application code
+6. **Immutable audit** — every PHI access is logged and retained for 6 years
+
+### 1.3 User Roles
+
+| Role | Description | Primary Surface |
+|---|---|---|
+| **Patient** | End consumer of clinical and pharmacy services | Web + Mobile |
+| **Provider** | Licensed clinician conducting consultations | Web + Mobile |
+| **Pharmacist** | Licensed dispenser managing inventory and orders | Web |
+| **Admin** | Platform operator managing compliance and analytics | Web |
+| **Rider** | Boda-boda courier handling last-mile delivery | Mobile (lightweight) |
+
+---
+
+## 2. Tech Stack
+
+### 2.1 Mandatory Stack
+
+| Layer | Technology | Notes |
+|---|---|---|
+| **Web Frontend** | Next.js 14+ (App Router), TypeScript, Tailwind CSS, ShadCN/UI | SSR/SSG for performance |
+| **Mobile Frontend** | Flutter (iOS + Android) | USSD/SMS fallback required |
+| **Primary Database** | Self-hosted Supabase (PostgreSQL 15+) | Kenyan VPS — data residency |
+| **Edge Compute** | Cloudflare Workers | API gateway, M-PESA, FHIR proxy |
+| **Edge Functions** | Supabase Edge Functions (Deno) | Webhooks, transformations |
+| **Object Storage (non-PHI)** | Cloudflare R2 | Zero egress fees |
+| **Object Storage (PHI)** | Self-hosted MinIO | Kenyan VPS |
+| **Authentication** | Supabase Auth | MFA (TOTP + SMS) |
+| **Real-time** | Supabase Realtime | Chat, tracking, notifications |
+| **Queue / Async** | Cloudflare Queues | Order processing, dispatch |
+| **AI / Clinical Support** | Cloudflare Workers AI (Llama 3.1 8B) | Triage, symptom analysis |
+| **SMS / OTP** | Africa's Talking API | More reliable than push in rural areas |
+| **Payments** | M-PESA Daraja 3.0 via `pesafy` SDK | STK Push, C2B, B2C |
+| **Audit Logging** | pgAudit + Supabase audit logs + Cloudflare Logpush | 6-year retention |
+| **IaC** | Terraform | Reproducible environments |
+| **CI/CD** | GitHub Actions + Docker | Blue-green deployments |
+
+### 2.2 Explicitly Rejected Technologies
+
+| Technology | Reason for Rejection |
+|---|---|
+| **Cloudflare D1** | 10 GB limit, single-threaded — unsuitable for clinical workloads |
+| **Cloudflare R2 for PHI** | No African storage region — violates DPA Section 50 |
+| **Shopify / standard SaaS e-commerce** | Cannot sign BAAs for PHI workloads |
+| **Public LLM APIs (OpenAI, Anthropic)** | PHI cannot be sent to non-BAA endpoints |
+| **Supabase Cloud (non-self-hosted)** | Data residency non-compliance for PHI |
+
+---
+
+## 3. Regulatory & Compliance Requirements
+
+These are **non-negotiable**. The build must satisfy all of them before launch.
+
+### 3.1 Kenya Data Protection Act 2019 (ODPC)
+
+- **Section 50 — Data Localisation:** Personal data processed for the provision of primary or secondary health care must be domiciled in Kenya. This mandates self-hosted Supabase and MinIO on Kenyan VPS infrastructure.
+- **ODPC Registration:** Register as data controller/processor. Health data controllers must additionally notify the **Digital Health Agency (DHA) within 7 days**.
+- **DPIA:** Conduct and document a Data Protection Impact Assessment covering all Cloudflare–Supabase data flows.
+- **Consent Management:** Granular opt-in for PHI processing, with timestamped records. Data subject rights (access, deletion, portability) must be implemented.
+
+### 3.2 Pharmacy and Poisons Board (PPB)
+
+- **Digital Pharmacy Licence:** Required under the *Guidelines for Internet Pharmacy Services in Kenya (rev. April 2023)* and *Pharmacy and Poisons (Amendment) Rules, 2022*.
+- **Display Requirements:** PPB licence number, pharmacist registration number, and KMHFR facility ID must be prominently displayed, with a hyperlink to the PPB website.
+- **Audit Trail (Guideline 7.1.5):** Immutable audit trail from medicine request to delivery.
+- **Transport Rules:** All delivery partners must hold a *Pharmacy and Poisons (Transportation of Pharmaceuticals) Rules, 2022* licence. Patient confidentiality must be safeguarded in transit.
+
+### 3.3 Digital Health Act 2023
+
+- **Platform Certification:** The platform must be certified by the Digital Health Agency under the national Certification Framework.
+- **Telemedicine Registry:** All providers must be qualified, registered, and licensed in Kenya, and listed on the national telemedicine health provider registry.
+- **FHIR Interoperability:** HL7 FHIR R4 and LOINC coding are formal requirements for national-level health systems. Integration with the Health Information Exchange (HIE) via the Interoperability Services Layer is required.
+
+### 3.4 Social Health Authority (SHA)
+
+- **Empanelment:** Only licensed and accredited facilities can be empanelled under SHA. Complete empanelment for claims processing and reimbursement.
+- **Afya Yangu Integration:** Support e-prescription viewing and clinical decision support via the SHA Afya Yangu portal.
+- **AI Clinical Support:** Support SHA's AI tooling that evaluates whether a prescribed medicine is harmful to the patient.
+
+### 3.5 Compliance Matrix
+
+| Requirement | Owner | Evidence |
+|---|---|---|
+| ODPC registration certificate | Admin | Certificate of Data Handler |
+| DHA notification (within 7 days) | Admin | Acknowledgement receipt |
+| DPIA document | Admin | Signed DPIA report |
+| PPB digital pharmacy licence | Pharmacist | Licence number displayed |
+| KMHFR facility registration | Pharmacist | Facility ID |
+| Platform certification (DHA) | Admin | Certification certificate |
+| Pharmaceutical transport licences | Logistics | Partner licence copies |
+| SHA empanelment | Admin | Empanelment confirmation |
+| Audit log retention (6 years) | Engineering | `AUDIT_LOG_RETENTION_DAYS=2190` |
+
+---
+
+## 4. Architecture Overview
+
+### 4.1 High-Level Topology
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  CLIENTS                                                         │
+│  Next.js Web  │  Flutter Mobile  │  USSD/SMS  │  Rider App      │
+└────────────┬──────────────┬────────────┬──────────────┬──────────┘
+             │              │            │              │
+             ▼              ▼            ▼              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  CLOUDFLARE EDGE (Nairobi PoP)                                   │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐            │
+│  │ Workers API  │  │ M-PESA GW    │  │ FHIR Proxy   │            │
+│  │ Gateway      │  │ (Daraja 3.0) │  │ (HIE)        │            │
+│  └──────────────┘  └──────────────┘  └──────────────┘            │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐            │
+│  │ WAF + Bot    │  │ Zero Trust   │  │ R2 (non-PHI) │            │
+│  │ Management   │  │ Access       │  │ Assets       │            │
+│  └──────────────┘  └──────────────┘  └──────────────┘            │
+│  ┌──────────────┐  ┌──────────────┐                              │
+│  │ Workers AI   │  │ Queues       │                              │
+│  └──────────────┘  └──────────────┘                              │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  KENYAN VPS (HOSTAFRICA / Truehost)                              │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │  SUPABASE (Self-Hosted)                                   │   │
+│  │  ┌────────────┐ ┌────────────┐ ┌────────────┐            │   │
+│  │  │ PostgreSQL │ │ Auth       │ │ Realtime   │            │   │
+│  │  │ + RLS      │ │ + MFA      │ │ (WS)       │            │   │
+│  │  └────────────┘ └────────────┘ └────────────┘            │   │
+│  │  ┌────────────┐ ┌────────────┐ ┌────────────┐            │   │
+│  │  │ Edge Funcs │ │ Storage    │ │ pgAudit    │            │   │
+│  │  │ (Deno)     │ │ (MinIO)    │ │            │            │   │
+│  │  └────────────┘ └────────────┘ └────────────┘            │   │
+│  └──────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  EXTERNAL INTEGRATIONS                                           │
+│  M-PESA Daraja │ Airtel Money │ SHA Afya Yangu │ HIE │ KMHFR     │
+│  Africa's Talking │ Boda-boda Dispatch API │ Pesalink            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 4.2 Data Classification & Routing
+
+| Data Type | Classification | Storage Location | Rationale |
+|---|---|---|---|
+| Patient records, prescriptions, diagnoses | **PHI** | Kenyan VPS (Supabase/MinIO) | DPA Section 50 |
+| Prescription images, lab results | **PHI** | Kenyan VPS (MinIO) | DPA Section 50 |
+| Product catalog, UI assets, blog | Non-PHI | Cloudflare R2 | Cost, performance |
+| Audit logs | Sensitive | Kenyan VPS (PostgreSQL) | PPB 6-year retention |
+| Session tokens, cache | Ephemeral | Cloudflare KV / Redis | Performance |
+| Analytics (anonymised) | Aggregated | Cloudflare R2 | Non-PHI after de-identification |
+
+### 4.3 Payment Abstraction Layer
+
+All payment providers are normalised into a single internal transaction model so new PSPs can be added without rewriting checkout logic.
+
+```
+Checkout Request
+      │
+      ▼
+┌─────────────────────┐
+│ Payment Orchestrator│  (Cloudflare Worker)
+│  - Method routing   │
+│  - Idempotency      │
+│  - State machine    │
+└──────────┬──────────┘
+           │
+   ┌───────┼───────┬──────────┬─────────┐
+   ▼       ▼       ▼          ▼         ▼
+ M-PESA  Airtel  Pesalink   Card      SHA
+ Daraja  Money   (Paystack) (PSP)     (Claims)
+   │       │       │          │         │
+   └───────┴───────┴──────────┴─────────┘
+                    │
+                    ▼
+           Unified Transaction
+           { id, method, amount_kes,
+             status, external_ref,
+             callback_payload, audit_id }
+```
+
+### 4.4 Delivery Architecture (Address-Free)
+
+Kenya has no universal physical addressing system. The platform uses:
+
+1. **Phone number as primary identifier** — the recipient's mobile number, not a street address
+2. **Landmark-based descriptor** — free-text field, e.g. "Near Equity Bank, Kasarani"
+3. **GPS pin-drop** — optional, urban areas only
+4. **Pick-up point network** — for non-urgent refills in high-demand towns
+5. **Community Health Promoters (CHPs)** — assisted ordering and collection for elderly/low-literacy patients
+
+**Delivery Workflow:**
+
+```
+Patient places order
+      │
+      ▼
+Select delivery method
+  ├─ Boda-Boda (same-day)  → dispatch API → rider app
+  ├─ Pick-up Point         → SMS code to patient
+  └─ Clinic Collection     → appointment slot
+      │
+      ▼
+Rider confirms pickup from licensed pharmacy
+      │
+      ▼
+En route (live GPS tracking to patient)
+      │
+      ▼
+Delivery → photo + OTP proof
+      │
+      ▼
+Chain-of-custody logged (timestamps, rider ID, GPS trail)
+```
+
+---
+
+## 5. Repository Structure
+
+Monorepo using Turborepo or Nx.
+
+```
+afyacommerce/
+├── apps/
+│   ├── web/                    # Next.js 14 patient + provider + pharmacist + admin
+│   ├── mobile/                 # Flutter patient + provider app
+│   └── rider/                  # Flutter lightweight rider app
+├── services/
+│   └── dispatch/               # Boda-boda dispatch orchestrator
+├── workers/
+│   ├── api-gateway/            # Cloudflare Worker — routing, rate limiting
+│   ├── mpesa/                  # Cloudflare Worker — Daraja integration
+│   ├── fhir/                   # Cloudflare Worker — HIE proxy
+│   ├── notifications/          # Cloudflare Worker — Africa's Talking
+│   └── ai-triage/              # Cloudflare Worker — Workers AI
+├── supabase/
+│   ├── migrations/             # SQL migrations (versioned)
+│   ├── functions/              # Edge Functions (Deno)
+│   │   ├── transform-prescription/
+│   │   ├── dispatch-boda/
+│   │   ├── audit-logger/
+│   │   └── sha-claims/
+│   └── seed/                   # Seed data for local dev
+├── packages/
+│   ├── ui/                     # Shared ShadCN components + design tokens
+│   ├── types/                  # Shared TypeScript interfaces
+│   ├── fhir-models/            # FHIR R4 type definitions
+│   ├── config/                 # Shared ESLint, TS, Tailwind configs
+│   └── sdk/                    # Typed client SDK for internal APIs
+├── infrastructure/
+│   ├── terraform/              # IaC for VPS, DNS, Cloudflare
+│   ├── docker/                 # Supabase self-host compose overrides
+│   └── scripts/                # Backup, restore, migration scripts
+├── docs/
+│   ├── compliance/             # DPIA, licences, audit procedures
+│   ├── runbooks/               # Incident response, DR procedures
+│   └── api/                    # OpenAPI specs
+├── .github/
+│   └── workflows/              # CI/CD pipelines
+├── turbo.json
+├── package.json
+└── README.md
+```
+
+---
+
+## 6. Database Schema
+
+All tables live in the `public` schema of the self-hosted Supabase PostgreSQL instance. **RLS is enabled on every table containing patient-adjacent data.**
+
+### 6.1 Extensions
+
+```sql
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "pg_audit";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";  -- fuzzy drug name search
+```
+
+### 6.2 Core Tables
+
+```sql
+-- ============================================================
+-- PROFILES (extends auth.users)
+-- ============================================================
+CREATE TABLE public.profiles (
+  id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
+  role TEXT NOT NULL CHECK (role IN ('patient','provider','pharmacist','admin','rider')),
+  full_name TEXT NOT NULL,
+  phone TEXT UNIQUE NOT NULL,          -- E.164: +2547XXXXXXXX
+  email TEXT,
+  national_id TEXT UNIQUE,             -- Kenyan National ID (hashed at rest in prod)
+  odpc_consent_given BOOLEAN DEFAULT FALSE,
+  odpc_consent_timestamp TIMESTAMPTZ,
+  mfa_enabled BOOLEAN DEFAULT FALSE,
+  preferred_language TEXT DEFAULT 'en' CHECK (preferred_language IN ('en','sw')),
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- PHARMACIES (licensed entities)
+-- ============================================================
+CREATE TABLE public.pharmacies (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  name TEXT NOT NULL,
+  ppb_licence_number TEXT UNIQUE NOT NULL,
+  ppb_licence_expiry DATE NOT NULL,
+  kmhfr_facility_id TEXT UNIQUE NOT NULL,
+  pharmacist_registration_number TEXT NOT NULL,
+  physical_address TEXT NOT NULL,
+  county TEXT NOT NULL,                -- One of Kenya's 47 counties
+  gps_lat DECIMAL(10,7),
+  gps_lng DECIMAL(10,7),
+  delivery_radius_km INTEGER DEFAULT 15,
+  is_active BOOLEAN DEFAULT TRUE,
+  is_sha_empanelled BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- PROVIDERS (clinicians)
+-- ============================================================
+CREATE TABLE public.providers (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  profile_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  licence_number TEXT UNIQUE NOT NULL,       -- Kenya Medical Practitioners licence
+  specialisation TEXT NOT NULL,
+  telemedicine_registry_id TEXT UNIQUE,      -- National telemedicine registry
+  is_available BOOLEAN DEFAULT TRUE,
+  consultation_fee_kes DECIMAL(10,2),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- PATIENTS
+-- ============================================================
+CREATE TABLE public.patients (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  profile_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE UNIQUE,
+  date_of_birth DATE NOT NULL,
+  gender TEXT CHECK (gender IN ('male','female','other','prefer_not_to_say')),
+  sha_member_number TEXT UNIQUE,
+  blood_type TEXT,
+  allergies TEXT[],
+  chronic_conditions TEXT[],
+  primary_county TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- PRODUCTS (pharmacy inventory)
+-- ============================================================
+CREATE TABLE public.products (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  pharmacy_id UUID REFERENCES public.pharmacies(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  generic_name TEXT,
+  swahili_name TEXT,                   -- For bilingual search
+  category TEXT NOT NULL CHECK (category IN ('prescription','otc','device','supplement')),
+  price_kes DECIMAL(10,2) NOT NULL CHECK (price_kes >= 0),
+  stock_quantity INTEGER DEFAULT 0 CHECK (stock_quantity >= 0),
+  reorder_threshold INTEGER DEFAULT 10,
+  batch_number TEXT,
+  expiry_date DATE,
+  requires_prescription BOOLEAN DEFAULT FALSE,
+  ppb_registration_number TEXT,
+  image_url TEXT,
+  search_vector TSVECTOR,              -- Generated for full-text search
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_products_search ON public.products USING GIN(search_vector);
+CREATE INDEX idx_products_expiry ON public.products(expiry_date) WHERE expiry_date IS NOT NULL;
+
+-- Auto-populate search vector
+CREATE OR REPLACE FUNCTION update_product_search() RETURNS TRIGGER AS $$
+BEGIN
+  NEW.search_vector :=
+    setweight(to_tsvector('english', COALESCE(NEW.name,'')), 'A') ||
+    setweight(to_tsvector('english', COALESCE(NEW.generic_name,'')), 'A') ||
+    setweight(to_tsvector('simple',  COALESCE(NEW.swahili_name,'')), 'A');
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_product_search BEFORE INSERT OR UPDATE ON public.products
+  FOR EACH ROW EXECUTE FUNCTION update_product_search();
+
+-- ============================================================
+-- PRESCRIPTIONS
+-- ============================================================
+CREATE TABLE public.prescriptions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  patient_id UUID REFERENCES public.patients(id) ON DELETE CASCADE,
+  provider_id UUID REFERENCES public.providers(id),
+  pharmacy_id UUID REFERENCES public.pharmacies(id),
+  medication_name TEXT NOT NULL,
+  generic_name TEXT,
+  dosage TEXT NOT NULL,
+  frequency TEXT NOT NULL,
+  duration_days INTEGER,
+  refills_remaining INTEGER DEFAULT 0 CHECK (refills_remaining >= 0),
+  status TEXT DEFAULT 'pending'
+    CHECK (status IN ('pending','approved','dispensed','cancelled','expired')),
+  fhir_resource JSONB,                 -- Full FHIR MedicationRequest
+  clinical_notes TEXT,
+  sha_claim_status TEXT DEFAULT 'not_submitted'
+    CHECK (sha_claim_status IN ('not_submitted','submitted','approved','rejected')),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_prescriptions_patient ON public.prescriptions(patient_id);
+CREATE INDEX idx_prescriptions_status ON public.prescriptions(status);
+
+-- ============================================================
+-- CONSULTATIONS (Telehealth sessions)
+-- ============================================================
+CREATE TABLE public.consultations (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  patient_id UUID REFERENCES public.patients(id) ON DELETE CASCADE,
+  provider_id UUID REFERENCES public.providers(id),
+  scheduled_at TIMESTAMPTZ NOT NULL,
+  started_at TIMESTAMPTZ,
+  ended_at TIMESTAMPTZ,
+  status TEXT DEFAULT 'scheduled'
+    CHECK (status IN ('scheduled','in_progress','completed','cancelled','no_show')),
+  consultation_type TEXT CHECK (consultation_type IN ('video','audio','chat')),
+  fee_kes DECIMAL(10,2),
+  payment_status TEXT DEFAULT 'pending'
+    CHECK (payment_status IN ('pending','paid','waived','failed')),
+  soap_notes JSONB,                    -- { subjective, objective, assessment, plan }
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- ORDERS
+-- ============================================================
+CREATE TABLE public.orders (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  order_number TEXT UNIQUE NOT NULL,   -- Human-readable: AFY-2026-000123
+  patient_id UUID REFERENCES public.patients(id),
+  pharmacy_id UUID REFERENCES public.pharmacies(id),
+  prescription_id UUID REFERENCES public.prescriptions(id),
+  subtotal_kes DECIMAL(10,2) NOT NULL,
+  delivery_fee_kes DECIMAL(10,2) DEFAULT 0,
+  total_kes DECIMAL(10,2) NOT NULL,
+  payment_status TEXT DEFAULT 'pending'
+    CHECK (payment_status IN ('pending','paid','failed','refunded','partially_refunded')),
+  payment_method TEXT CHECK (payment_method IN ('mpesa','airtel_money','pesalink','card','sha','cash')),
+  payment_reference TEXT,              -- Internal unified transaction ID
+  mpesa_checkout_request_id TEXT,
+  mpesa_receipt_number TEXT,
+  delivery_status TEXT DEFAULT 'pending'
+    CHECK (delivery_status IN ('pending','confirmed','dispatched','in_transit','delivered','failed','cancelled')),
+  delivery_method TEXT CHECK (delivery_method IN ('boda','pickup_point','clinic_collection')),
+  delivery_address JSONB NOT NULL,
+    -- { phone, landmark, county, gps_lat, gps_lng, notes }
+  rider_id UUID REFERENCES public.profiles(id),
+  proof_of_delivery JSONB,             -- { photo_url, otp_verified, gps_at_delivery, timestamp }
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_orders_patient ON public.orders(patient_id);
+CREATE INDEX idx_orders_status ON public.orders(delivery_status);
+CREATE INDEX idx_orders_number ON public.orders(order_number);
+
+-- ============================================================
+-- ORDER ITEMS
+-- ============================================================
+CREATE TABLE public.order_items (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  order_id UUID REFERENCES public.orders(id) ON DELETE CASCADE,
+  product_id UUID REFERENCES public.products(id),
+  quantity INTEGER NOT NULL CHECK (quantity > 0),
+  unit_price_kes DECIMAL(10,2) NOT NULL,
+  line_total_kes DECIMAL(10,2) NOT NULL
+);
+
+-- ============================================================
+-- PAYMENT TRANSACTIONS (unified abstraction)
+-- ============================================================
+CREATE TABLE public.payment_transactions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  order_id UUID REFERENCES public.orders(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL CHECK (provider IN ('mpesa','airtel_money','pesalink','card','sha')),
+  provider_reference TEXT,             -- e.g. CheckoutRequestID
+  amount_kes DECIMAL(10,2) NOT NULL,
+  status TEXT DEFAULT 'initiated'
+    CHECK (status IN ('initiated','pending','succeeded','failed','reversed')),
+  request_payload JSONB,
+  callback_payload JSONB,
+  idempotency_key TEXT UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- RIDERS
+-- ============================================================
+CREATE TABLE public.riders (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  profile_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE UNIQUE,
+  plate_number TEXT NOT NULL,
+  transport_licence_number TEXT NOT NULL,   -- Pharmacy & Poisons Transport Rules 2022
+  transport_licence_expiry DATE NOT NULL,
+  county TEXT NOT NULL,
+  is_available BOOLEAN DEFAULT FALSE,
+  current_lat DECIMAL(10,7),
+  current_lng DECIMAL(10,7),
+  last_ping_at TIMESTAMPTZ,
+  rating DECIMAL(3,2) DEFAULT 5.00,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- AUDIT LOG (immutable, append-only)
+-- ============================================================
+CREATE TABLE public.audit_log (
+  id BIGSERIAL PRIMARY KEY,
+  actor_id UUID REFERENCES public.profiles(id),
+  actor_role TEXT,
+  action TEXT NOT NULL,                -- e.g. 'READ', 'CREATE', 'UPDATE', 'DISPENSE', 'EXPORT'
+  resource_type TEXT NOT NULL,         -- e.g. 'prescription', 'patient', 'order'
+  resource_id UUID,
+  phi_accessed BOOLEAN DEFAULT FALSE,
+  purpose TEXT,                        -- 'treatment', 'payment', 'audit', 'admin'
+  ip_address INET,
+  user_agent TEXT,
+  metadata JSONB,
+  timestamp TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Audit log is append-only: no UPDATE or DELETE allowed
+CREATE RULE audit_log_no_update AS ON UPDATE TO public.audit_log DO INSTEAD NOTHING;
+CREATE RULE audit_log_no_delete AS ON DELETE TO public.audit_log DO INSTEAD NOTHING;
+
+CREATE INDEX idx_audit_actor ON public.audit_log(actor_id);
+CREATE INDEX idx_audit_resource ON public.audit_log(resource_type, resource_id);
+CREATE INDEX idx_audit_timestamp ON public.audit_log(timestamp DESC);
+
+-- ============================================================
+-- CONSENT RECORDS (ODPC compliance)
+-- ============================================================
+CREATE TABLE public.consent_records (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  profile_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  consent_type TEXT NOT NULL CHECK (consent_type IN (
+    'phi_processing','telehealth','prescription_sharing',
+    'marketing','research','data_sharing_third_party'
+  )),
+  granted BOOLEAN NOT NULL,
+  granted_at TIMESTAMPTZ DEFAULT NOW(),
+  revoked_at TIMESTAMPTZ,
+  ip_address INET,
+  policy_version TEXT NOT NULL
+);
+```
+
+### 6.3 Automated Audit Trigger
+
+```sql
+-- Generic audit trigger function
+CREATE OR REPLACE FUNCTION audit_trigger_func() RETURNS TRIGGER AS $$
+DECLARE
+  v_actor UUID;
+  v_role TEXT;
+BEGIN
+  v_actor := auth.uid();
+  SELECT role INTO v_role FROM public.profiles WHERE id = v_actor;
+
+  INSERT INTO public.audit_log (
+    actor_id, actor_role, action, resource_type, resource_id,
+    phi_accessed, ip_address, metadata
+  ) VALUES (
+    v_actor,
+    v_role,
+    TG_OP,
+    TG_TABLE_NAME,
+    COALESCE(NEW.id, OLD.id),
+    TG_TABLE_NAME IN ('patients','prescriptions','consultations','orders'),
+    current_setting('request.headers', true)::json->>'x-forwarded-for',
+    jsonb_build_object('old', to_jsonb(OLD), 'new', to_jsonb(NEW))
+  );
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Apply to PHI tables
+CREATE TRIGGER audit_patients AFTER INSERT OR UPDATE OR DELETE ON public.patients
+  FOR EACH ROW EXECUTE FUNCTION audit_trigger_func();
+CREATE TRIGGER audit_prescriptions AFTER INSERT OR UPDATE OR DELETE ON public.prescriptions
+  FOR EACH ROW EXECUTE FUNCTION audit_trigger_func();
+CREATE TRIGGER audit_consultations AFTER INSERT OR UPDATE OR DELETE ON public.consultations
+  FOR EACH ROW EXECUTE FUNCTION audit_trigger_func();
+CREATE TRIGGER audit_orders AFTER INSERT OR UPDATE OR DELETE ON public.orders
+  FOR EACH ROW EXECUTE FUNCTION audit_trigger_func();
+```
+
+### 6.4 Inventory Automation
+
+```sql
+-- Auto-flag low stock and near-expiry
+CREATE OR REPLACE VIEW public.inventory_alerts AS
+SELECT
+  p.id,
+  p.name,
+  p.pharmacy_id,
+  p.stock_quantity,
+  p.reorder_threshold,
+  p.expiry_date,
+  CASE
+    WHEN p.stock_quantity <= p.reorder_threshold THEN 'LOW_STOCK'
+    WHEN p.expiry_date <= CURRENT_DATE + INTERVAL '30 days' THEN 'NEAR_EXPIRY'
+    WHEN p.expiry_date <= CURRENT_DATE THEN 'EXPIRED'
+    ELSE 'OK'
+  END AS alert_type
+FROM public.products p
+WHERE p.stock_quantity <= p.reorder_threshold
+   OR p.expiry_date <= CURRENT_DATE + INTERVAL '30 days';
+```
+
+---
+
+## 7. Row Level Security Policies
+
+**Enable RLS on all tables. No exceptions.** Even if the API layer is compromised, the database refuses unauthorized reads.
+
+```sql
+-- Enable RLS
+ALTER TABLE public.profiles            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.patients            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.prescriptions       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.consultations       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.orders              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.order_items         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.products            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.pharmacies          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.providers           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.riders              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.audit_log           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.consent_records     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payment_transactions ENABLE ROW LEVEL SECURITY;
+
+-- Helper: current user's role
+CREATE OR REPLACE FUNCTION public.current_role_name() RETURNS TEXT AS $$
+  SELECT role FROM public.profiles WHERE id = auth.uid();
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
+
+-- ============================================================
+-- PROFILES
+-- ============================================================
+CREATE POLICY "profiles_self_read" ON public.profiles
+  FOR SELECT USING (id = auth.uid());
+
+CREATE POLICY "profiles_self_update" ON public.profiles
+  FOR UPDATE USING (id = auth.uid())
+  WITH CHECK (id = auth.uid() AND role = (SELECT role FROM public.profiles WHERE id = auth.uid()));
+
+CREATE POLICY "admin_all_profiles" ON public.profiles
+  FOR ALL USING (public.current_role_name() = 'admin');
+
+-- ============================================================
+-- PATIENTS
+-- ============================================================
+CREATE POLICY "patients_own_record" ON public.patients
+  FOR ALL USING (profile_id = auth.uid());
+
+CREATE POLICY "providers_treating_patients" ON public.patients
+  FOR SELECT USING (
+    public.current_role_name() = 'provider'
+    AND id IN (
+      SELECT patient_id FROM public.consultations
+      WHERE provider_id = (SELECT id FROM public.providers WHERE profile_id = auth.uid())
+    )
+  );
+
+CREATE POLICY "pharmacists_dispensing_patients" ON public.patients
+  FOR SELECT USING (
+    public.current_role_name() = 'pharmacist'
+    AND id IN (
+      SELECT patient_id FROM public.prescriptions
+      WHERE pharmacy_id = (SELECT pharmacy_id FROM public.profiles WHERE id = auth.uid())
+    )
+  );
+
+-- ============================================================
+-- PRESCRIPTIONS
+-- ============================================================
+CREATE POLICY "patients_own_prescriptions" ON public.prescriptions
+  FOR SELECT USING (
+    patient_id IN (SELECT id FROM public.patients WHERE profile_id = auth.uid())
+  );
+
+CREATE POLICY "providers_own_prescriptions" ON public.prescriptions
+  FOR ALL USING (
+    provider_id = (SELECT id FROM public.providers WHERE profile_id = auth.uid())
+  );
+
+CREATE POLICY "pharmacists_pharmacy_prescriptions" ON public.prescriptions
+  FOR SELECT USING (
+    public.current_role_name() = 'pharmacist'
+    AND pharmacy_id = (SELECT pharmacy_id FROM public.profiles WHERE id = auth.uid())
+  );
+
+CREATE POLICY "pharmacists_update_dispense_status" ON public.prescriptions
+  FOR UPDATE USING (
+    public.current_role_name() = 'pharmacist'
+    AND pharmacy_id = (SELECT pharmacy_id FROM public.profiles WHERE id = auth.uid())
+  )
+  WITH CHECK (status IN ('approved','dispensed'));
+
+-- ============================================================
+-- ORDERS
+-- ============================================================
+CREATE POLICY "patients_own_orders" ON public.orders
+  FOR ALL USING (
+    patient_id IN (SELECT id FROM public.patients WHERE profile_id = auth.uid())
+  );
+
+CREATE POLICY "pharmacists_pharmacy_orders" ON public.orders
+  FOR SELECT USING (
+    pharmacy_id = (SELECT pharmacy_id FROM public.profiles WHERE id = auth.uid())
+  );
+
+CREATE POLICY "pharmacists_update_orders" ON public.orders
+  FOR UPDATE USING (
+    pharmacy_id = (SELECT pharmacy_id FROM public.profiles WHERE id = auth.uid())
+  )
+  WITH CHECK (delivery_status IN ('confirmed','dispatched','cancelled'));
+
+CREATE POLICY "riders_assigned_orders" ON public.orders
+  FOR SELECT USING (
+    rider_id = auth.uid()
+    AND public.current_role_name() = 'rider'
+  );
+
+CREATE POLICY "riders_update_delivery_status" ON public.orders
+  FOR UPDATE USING (rider_id = auth.uid())
+  WITH CHECK (delivery_status IN ('in_transit','delivered','failed'));
+
+-- ============================================================
+-- PRODUCTS (public catalog read)
+-- ============================================================
+CREATE POLICY "products_public_read" ON public.products
+  FOR SELECT USING (TRUE);
+
+CREATE POLICY "pharmacists_manage_own_products" ON public.products
+  FOR ALL USING (
+    pharmacy_id = (SELECT pharmacy_id FROM public.profiles WHERE id = auth.uid())
+  );
+
+-- ============================================================
+-- AUDIT LOG (admin read-only; inserts via SECURITY DEFINER only)
+-- ============================================================
+CREATE POLICY "admin_read_audit" ON public.audit_log
+  FOR SELECT USING (public.current_role_name() = 'admin');
+
+CREATE POLICY "no_direct_audit_insert" ON public.audit_log
+  FOR INSERT WITH CHECK (FALSE);  -- Only the SECURITY DEFINER trigger can insert
+
+-- ============================================================
+-- CONSENT RECORDS
+-- ============================================================
+CREATE POLICY "patients_own_consent" ON public.consent_records
+  FOR ALL USING (profile_id = auth.uid());
+
+CREATE POLICY "admin_read_consent" ON public.consent_records
+  FOR SELECT USING (public.current_role_name() = 'admin');
+```
+
+---
+
+## 8. Cloudflare Workers
+
+### 8.1 Worker: M-PESA Payment Gateway
+
+**File:** `workers/mpesa/src/index.ts`
+
+```typescript
+import { Mpesa } from 'pesafy';
+
+export interface Env {
+  MPESA_CONSUMER_KEY: string;
+  MPESA_CONSUMER_SECRET: string;
+  MPESA_PASSKEY: string;
+  MPESA_SHORTCODE: string;
+  MPESA_ENVIRONMENT: 'sandbox' | 'production';
+  SUPABASE_URL: string;
+  SUPABASE_SERVICE_KEY: string;
+  CALLBACK_BASE_URL: string;
+}
+
+interface StkPushRequest {
+  phone: string;       // E.164 +254...
+  amount: number;      // KES
+  orderId: string;
+  orderNumber: string;
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    const cors = {
+      'Access-Control-Allow-Origin': 'https://afyacommerce.co.ke',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    };
+
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { headers: cors });
+    }
+
+    // ---- Initiate STK Push ----
+    if (url.pathname === '/api/mpesa/stk-push' && request.method === 'POST') {
+      const body: StkPushRequest = await request.json();
+
+      // Validate Kenyan phone number
+      if (!/^\+254[17]\d{8}$/.test(body.phone)) {
+        return Response.json(
+          { error: 'Invalid Kenyan phone number' },
+          { status: 400, headers: cors }
+        );
+      }
+
+      const mpesa = new Mpesa({
+        consumerKey: env.MPESA_CONSUMER_KEY,
+        consumerSecret: env.MPESA_CONSUMER_SECRET,
+        environment: env.MPESA_ENVIRONMENT,
+        lipaNaMpesaShortCode: env.MPESA_SHORTCODE,
+        lipaNaMpesaPassKey: env.MPESA_PASSKEY,
+      });
+
+      const response = await mpesa.stkPush({
+        amount: Math.round(body.amount),
+        phoneNumber: body.phone,
+        callbackUrl: `${env.CALLBACK_BASE_URL}/api/mpesa/callback`,
+        accountReference: body.orderNumber,
+        transactionDesc: `AfyaCommerce ${body.orderNumber}`,
+      });
+
+      // Persist transaction state
+      await fetch(`${env.SUPABASE_URL}/rest/v1/payment_transactions`, {
+        method: 'POST',
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=representation',
+        },
+        body: JSON.stringify({
+          order_id: body.orderId,
+          provider: 'mpesa',
+          provider_reference: response.CheckoutRequestID,
+          amount_kes: body.amount,
+          status: 'pending',
+          idempotency_key: `${body.orderId}-${response.CheckoutRequestID}`,
+          request_payload: response,
+        }),
+      });
+
+      return Response.json(response, { headers: cors });
+    }
+
+    // ---- M-PESA Callback ----
+    if (url.pathname === '/api/mpesa/callback' && request.method === 'POST') {
+      const callback = await request.json() as any;
+      const cb = callback?.Body?.stkCallback;
+      if (!cb) return new Response('Bad Request', { status: 400 });
+
+      const { CheckoutRequestID, ResultCode, MpesaReceiptNumber, ResultDesc } = cb;
+
+      const success = ResultCode === 0;
+
+      // Update payment transaction
+      await fetch(
+        `${env.SUPABASE_URL}/rest/v1/payment_transactions?provider_reference=eq.${CheckoutRequestID}`,
+        {
+          method: 'PATCH',
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            status: success ? 'succeeded' : 'failed',
+            callback_payload: callback,
+            updated_at: new Date().toISOString(),
+          }),
+        }
+      );
+
+      // Update order
+      if (success) {
+        await fetch(
+          `${env.SUPABASE_URL}/rest/v1/orders?mpesa_checkout_request_id=eq.${CheckoutRequestID}`,
+          {
+            method: 'PATCH',
+            headers: {
+              apikey: env.SUPABASE_SERVICE_KEY,
+              Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              payment_status: 'paid',
+              mpesa_receipt_number: MpesaReceiptNumber,
+              updated_at: new Date().toISOString(),
+            }),
+          }
+        );
+      }
+
+      // M-PESA expects a plain 200
+      return new Response('OK', { status: 200 });
+    }
+
+    // ---- Payment Status Poll ----
+    if (url.pathname.startsWith('/api/mpesa/status/')) {
+      const ref = url.pathname.split('/').pop();
+      const res = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/payment_transactions?provider_reference=eq.${ref}&select=status`,
+        {
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          },
+        }
+      );
+      const data = await res.json();
+      return Response.json(data[0] ?? { status: 'unknown' }, { headers: cors });
+    }
+
+    return new Response('Not Found', { status: 404, headers: cors });
+  },
+};
+```
+
+### 8.2 Worker: FHIR / HIE Proxy
+
+**File:** `workers/fhir/src/index.ts`
+
+```typescript
+export interface Env {
+  HIE_BASE_URL: string;
+  HIE_CLIENT_ID: string;
+  HIE_CLIENT_SECRET: string;
+  HIE_TOKEN_CACHE: KVNamespace;
+}
+
+async function getHieToken(env: Env): Promise<string> {
+  const cached = await env.HIE_TOKEN_CACHE.get('hie_token');
+  if (cached) return cached;
+
+  const res = await fetch(`${env.HIE_BASE_URL}/auth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: env.HIE_CLIENT_ID,
+      client_secret: env.HIE_CLIENT_SECRET,
+      grant_type: 'client_credentials',
+    }),
+  });
+  const data = await res.json() as { access_token: string; expires_in: number };
+  await env.HIE_TOKEN_CACHE.put('hie_token', data.access_token, {
+    expirationTtl: data.expires_in - 60,
+  });
+  return data.access_token;
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (!url.pathname.startsWith('/fhir/')) {
+      return new Response('Not Found', { status: 404 });
+    }
+
+    const token = await getHieToken(env);
+    const hieUrl = `${env.HIE_BASE_URL}${url.pathname.replace('/fhir', '')}${url.search}`;
+
+    const hieResponse = await fetch(hieUrl, {
+      method: request.method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/fhir+json',
+        Accept: 'application/fhir+json',
+      },
+      body: ['GET', 'HEAD'].includes(request.method) ? undefined : request.body,
+    });
+
+    return new Response(hieResponse.body, {
+      status: hieResponse.status,
+      headers: {
+        'Content-Type': 'application/fhir+json',
+        'Access-Control-Allow-Origin': 'https://afyacommerce.co.ke',
+      },
+    });
+  },
+};
+```
+
+### 8.3 Worker: Notifications (Africa's Talking)
+
+**File:** `workers/notifications/src/index.ts`
+
+```typescript
+export interface Env {
+  AT_API_KEY: string;
+  AT_USERNAME: string;
+  AT_SENDER_ID: string;
+}
+
+interface SmsJob {
+  to: string;          // +254...
+  message: string;
+  type: 'otp' | 'order_dispatched' | 'order_delivered' | 'refill_reminder' | 'prescription_ready';
+}
+
+export default {
+  async queue(batch: MessageBatch<SmsJob>, env: Env): Promise<void> {
+    for (const msg of batch.messages) {
+      const { to, message } = msg.body;
+
+      const params = new URLSearchParams({
+        username: env.AT_USERNAME,
+        to,
+        message,
+        from: env.AT_SENDER_ID,
+      });
+
+      const res = await fetch('https://api.africastalking.com/version1/messaging', {
+        method: 'POST',
+        headers: {
+          apiKey: env.AT_API_KEY,
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Accept: 'application/json',
+        },
+        body: params.toString(),
+      });
+
+      if (res.ok) msg.ack();
+      else msg.retry();
+    }
+  },
+};
+```
+
+### 8.4 Worker: AI Clinical Triage
+
+**File:** `workers/ai-triage/src/index.ts`
+
+```typescript
+export interface Env {
+  AI: Ai;
+}
+
+const SYSTEM_PROMPT = `You are a clinical triage assistant for a Kenyan telehealth platform.
+Given patient-reported symptoms, classify urgency as EMERGENCY, URGENT, or ROUTINE.
+NEVER diagnose. NEVER prescribe. Output JSON only:
+{ "urgency": "...", "recommended_action": "...", "red_flags": [...], "swahili_summary": "..." }`;
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const { symptoms, age, chronic_conditions } = await request.json() as any;
+
+    const response = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        {
+          role: 'user',
+          content: `Age: ${age}\nChronic conditions: ${chronic_conditions?.join(', ') || 'none'}\nSymptoms: ${symptoms}`,
+        },
+      ],
+      max_tokens: 512,
+    });
+
+    return Response.json(response);
+  },
+};
+```
+
+---
+
+## 9. Supabase Edge Functions
+
+### 9.1 Prescription → FHIR Transformation
+
+**File:** `supabase/functions/transform-prescription/index.ts`
+
+```typescript
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+serve(async (req) => {
+  const { prescriptionId } = await req.json();
+
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  );
+
+  const { data: rx, error } = await supabase
+    .from('prescriptions')
+    .select(`
+      *,
+      patients ( id, profile_id, sha_member_number, allergies,
+                 profiles ( full_name, phone ) ),
+      providers ( licence_number, specialisation,
+                  profiles ( full_name ) )
+    `)
+    .eq('id', prescriptionId)
+    .single();
+
+  if (error || !rx) {
+    return new Response(JSON.stringify({ error: 'Prescription not found' }), { status: 404 });
+  }
+
+  const fhirResource = {
+    resourceType: 'MedicationRequest',
+    id: rx.id,
+    meta: {
+      lastUpdated: rx.updated_at,
+      profile: ['http://hl7.org/fhir/StructureDefinition/MedicationRequest'],
+    },
+    status: rx.status === 'dispensed' ? 'completed'
+          : rx.status === 'approved'  ? 'active'
+          : rx.status === 'cancelled' ? 'cancelled'
+          : 'draft',
+    intent: 'order',
+    medicationCodeableConcept: {
+      text: rx.medication_name,
+      coding: rx.generic_name
+        ? [{ system: 'http://snomed.info/sct', display: rx.generic_name }]
+        : undefined,
+    },
+    subject: {
+      reference: `Patient/${rx.patient_id}`,
+      display: rx.patients?.profiles?.full_name,
+    },
+    authoredOn: rx.created_at,
+    requester: {
+      reference: `Practitioner/${rx.provider_id}`,
+      display: rx.providers?.profiles?.full_name,
+    },
+    dosageInstruction: [{
+      text: `${rx.dosage} ${rx.frequency}`,
+      timing: { repeat: { duration: rx.duration_days, durationUnit: 'd' } },
+    }],
+    dispenseRequest: {
+      numberOfRepeatsAllowed: rx.refills_remaining,
+      validityPeriod: { end: new Date(Date.now() + 90 * 864e5).toISOString() },
+    },
+    note: rx.clinical_notes ? [{ text: rx.clinical_notes }] : undefined,
+  };
+
+  await supabase
+    .from('prescriptions')
+    .update({ fhir_resource: fhirResource })
+    .eq('id', prescriptionId);
+
+  return new Response(JSON.stringify(fhirResource), {
+    headers: { 'Content-Type': 'application/fhir+json' },
+  });
+});
+```
+
+### 9.2 Boda-Boda Dispatch
+
+**File:** `supabase/functions/dispatch-boda/index.ts`
+
+```typescript
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+serve(async (req) => {
+  const { orderId } = await req.json();
+
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  );
+
+  const { data: order } = await supabase
+    .from('orders')
+    .select('*, pharmacies(gps_lat, gps_lng, county)')
+    .eq('id', orderId)
+    .single();
+
+  if (!order) return new Response('Order not found', { status: 404 });
+
+  // Find nearest available rider in same county
+  const { data: riders } = await supabase
+    .from('riders')
+    .select('*')
+    .eq('county', order.pharmacies.county)
+    .eq('is_available', true)
+    .order('last_ping_at', { ascending: false })
+    .limit(5);
+
+  if (!riders?.length) {
+    await supabase.from('orders')
+      .update({ delivery_status: 'pending' })
+      .eq('id', orderId);
+    return new Response(JSON.stringify({ error: 'No riders available' }), { status: 503 });
+  }
+
+  // Assign first rider (production: use geospatial nearest-neighbour)
+  const rider = riders[0];
+
+  await supabase.from('orders').update({
+    rider_id: rider.profile_id,
+    delivery_status: 'dispatched',
+  }).eq('id', orderId);
+
+  await supabase.from('riders')
+    .update({ is_available: false })
+    .eq('id', rider.id);
+
+  return new Response(JSON.stringify({
+    rider_id: rider.profile_id,
+    rider_phone: rider.plate_number,
+    pickup: { lat: order.pharmacies.gps_lat, lng: order.pharmacies.gps_lng },
+    dropoff: order.delivery_address,
+  }), { headers: { 'Content-Type': 'application/json' } });
+});
+```
+
+### 9.3 Audit Logger (client-side calls)
+
+**File:** `supabase/functions/audit-logger/index.ts`
+
+```typescript
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+serve(async (req) => {
+  const { action, resourceType, resourceId, phiAccessed, purpose, metadata } = await req.json();
+
+  const authHeader = req.headers.get('Authorization')!;
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_ANON_KEY')!,
+    { global: { headers: { Authorization: authHeader } } }
+  );
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return new Response('Unauthorized', { status: 401 });
+
+  const admin = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  );
+
+  await admin.from('audit_log').insert({
+    actor_id: user.id,
+    action,
+    resource_type: resourceType,
+    resource_id: resourceId,
+    phi_accessed: phiAccessed ?? false,
+    purpose: purpose ?? 'treatment',
+    ip_address: req.headers.get('x-forwarded-for'),
+    user_agent: req.headers.get('user-agent'),
+    metadata,
+  });
+
+  return new Response('logged', { status: 200 });
+});
+```
+
+---
+
+## 10. Web Frontend (Next.js)
+
+### 10.1 App Router Structure
+
+```
+apps/web/
+├── app/
+│   ├── layout.tsx
+│   ├── page.tsx                          # Marketing landing
+│   ├── (auth)/
+│   │   ├── login/page.tsx
+│   │   ├── register/page.tsx
+│   │   └── verify-otp/page.tsx
+│   ├── (patient)/
+│   │   ├── layout.tsx                    # Patient shell (nav, footer)
+│   │   ├── dashboard/page.tsx
+│   │   ├── consultations/
+│   │   │   ├── page.tsx
+│   │   │   ├── book/page.tsx
+│   │   │   └── [id]/page.tsx             # Video call room
+│   │   ├── prescriptions/
+│   │   │   ├── page.tsx
+│   │   │   ├── upload/page.tsx
+│   │   │   └── [id]/page.tsx
+│   │   ├── pharmacy/
+│   │   │   ├── page.tsx                  # Catalog
+│   │   │   └── [productId]/page.tsx
+│   │   ├── cart/page.tsx
+│   │   ├── checkout/
+│   │   │   ├── page.tsx
+│   │   │   ├── delivery/page.tsx
+│   │   │   └── payment/page.tsx
+│   │   ├── orders/
+│   │   │   ├── page.tsx
+│   │   │   └── [orderId]/track/page.tsx
+│   │   └── profile/
+│   │       ├── page.tsx
+│   │       ├── consent/page.tsx
+│   │       └── data-rights/page.tsx
+│   ├── (provider)/
+│   │   ├── layout.tsx
+│   │   ├── dashboard/page.tsx
+│   │   ├── appointments/page.tsx
+│   │   ├── patients/page.tsx
+│   │   ├── prescriptions/new/page.tsx
+│   │   └── consultations/[id]/page.tsx
+│   ├── (pharmacist)/
+│   │   ├── layout.tsx
+│   │   ├── dashboard/page.tsx
+│   │   ├── prescriptions/page.tsx
+│   │   ├── inventory/page.tsx
+│   │   ├── orders/page.tsx
+│   │   └── reports/page.tsx
+│   ├── (admin)/
+│   │   ├── layout.tsx
+│   │   ├── dashboard/page.tsx
+│   │   ├── audit-log/page.tsx
+│   │   ├── compliance/page.tsx
+│   │   └── analytics/page.tsx
+│   └── api/
+│       └── revalidate/route.ts
+├── components/
+│   ├── ui/                               # ShadCN primitives
+│   ├── patient/
+│   │   ├── QuickActions.tsx
+│   │   ├── UpcomingConsultation.tsx
+│   │   ├── PrescriptionRefillCard.tsx
+│   │   └── RecentOrders.tsx
+│   ├── checkout/
+│   │   ├── MpesaCheckout.tsx
+│   │   ├── DeliverySelector.tsx
+│   │   └── OrderSummary.tsx
+│   ├── orders/
+│   │   ├── DeliveryTracker.tsx
+│   │   └── ProofOfDelivery.tsx
+│   ├── pharmacy/
+│   │   ├── ProductGrid.tsx
+│   │   ├── ProductCard.tsx
+│   │   └── PrescriptionUpload.tsx
+│   ├── telehealth/
+│   │   ├── VideoRoom.tsx
+│   │   ├── ChatPanel.tsx
+│   │   └── SoapNotes.tsx
+│   └── shared/
+│       ├── TrustBadges.tsx               # PPB, ODPC, SHA logos + numbers
+│       ├── LanguageToggle.tsx            # EN / SW
+│       └── ConsentGate.tsx
+├── lib/
+│   ├── supabase/
+│   │   ├── client.ts                     # Browser client
+│   │   ├── server.ts                     # Server component client
+│   │   ├── middleware.ts                 # Session refresh
+│   │   └── admin.ts                      # Service-role (server-only)
+│   ├── mpesa/client.ts
+│   ├── fhir/client.ts
+│   ├── audit/logger.ts
+│   ├── i18n/
+│   │   ├── en.json
+│   │   └── sw.json
+│   └── utils/
+│       ├── format-currency.ts            # KES formatting
+│       ├── validate-phone.ts             # +254 validation
+│       └── counties.ts                   # All 47 Kenya counties
+├── middleware.ts                          # Auth guard + role routing
+├── tailwind.config.ts
+├── next.config.js
+└── package.json
+```
+
+### 10.2 Key Component: Trust Badges
+
+```tsx
+// components/shared/TrustBadges.tsx
+import { Shield, Award, Building2 } from 'lucide-react';
+
+interface TrustBadgesProps {
+  ppbLicence: string;
+  kmhfrId: string;
+  pharmacistRegNo: string;
+  isShaEmpanelled: boolean;
+}
+
+export function TrustBadges({
+  ppbLicence, kmhfrId, pharmacistRegNo, isShaEmpanelled,
+}: TrustBadgesProps) {
+  return (
+    <div className="flex flex-wrap gap-4 text-xs text-gray-600">
+      <a
+        href={`https://web.pharmacyboardkenya.org/verify?licence=${ppbLicence}`}
+        target="_blank" rel="noopener noreferrer"
+        className="flex items-center gap-1.5 hover:text-primary"
+      >
+        <Shield className="h-4 w-4" />
+        <span>PPB Licence: <strong>{ppbLicence}</strong></span>
+      </a>
+
+      <span className="flex items-center gap-1.5">
+        <Building2 className="h-4 w-4" />
+        <span>KMHFR: <strong>{kmhfrId}</strong></span>
+      </span>
+
+      <span className="flex items-center gap-1.5">
+        <Award className="h-4 w-4" />
+        <span>Pharmacist: <strong>{pharmacistRegNo}</strong></span>
+      </span>
+
+      {isShaEmpanelled && (
+        <span className="flex items-center gap-1.5 text-green-700">
+          <Shield className="h-4 w-4" />
+          <span>SHA Empanelled</span>
+        </span>
+      )}
+    </div>
+  );
+}
+```
+
+### 10.3 Key Component: M-PESA Checkout
+
+```tsx
+// components/checkout/MpesaCheckout.tsx
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+interface Props {
+  orderId: string;
+  orderNumber: string;
+  amount: number;
+  onSuccess: (receipt: string) => void;
+}
+
+type Status = 'idle' | 'pending' | 'success' | 'failed';
+
+export function MpesaCheckout({ orderId, orderNumber, amount, onSuccess }: Props) {
+  const [phone, setPhone] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<Status>('idle');
+  const pollRef = useRef<number | null>(null);
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  const handlePayment = async () => {
+    setLoading(true);
+    setStatus('pending');
+
+    try {
+      const normalized = phone.replace(/^0/, '+254').replace(/\s/g, '');
+      const res = await fetch('/api/mpesa/stk-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: normalized, amount, orderId, orderNumber }),
+      });
+
+      if (!res.ok) throw new Error('STK push failed');
+      const { CheckoutRequestID } = await res.json();
+
+      let elapsed = 0;
+      pollRef.current = window.setInterval(async () => {
+        elapsed += 3000;
+        const s = await fetch(`/api/mpesa/status/${CheckoutRequestID}`).then(r => r.json());
+
+        if (s.status === 'succeeded') {
+          clearInterval(pollRef.current!);
+          setStatus('success');
+          onSuccess(s.mpesa_receipt ?? '');
+        } else if (s.status === 'failed') {
+          clearInterval(pollRef.current!);
+          setStatus('failed');
+        } else if (elapsed >= 90000) {
+          clearInterval(pollRef.current!);
+          setStatus('failed');
+        }
+      }, 3000);
+    } catch {
+      setStatus('failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card className="w-full max-w-md">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <img src="/mpesa-logo.svg" alt="M-PESA" className="h-6" />
+          Lipa na M-PESA
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="text-2xl font-bold">KES {amount.toLocaleString('en-KE')}</div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium">M-PESA Phone Number</label>
+          <Input
+            type="tel"
+            placeholder="0712 345 678"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            disabled={loading}
+            inputMode="tel"
+          />
+          <p className="text-xs text-gray-500">
+            A payment prompt will appear on this phone. Enter your M-PESA PIN to confirm.
+          </p>
+        </div>
+
+        {status === 'pending' && (
+          <div className="text-sm text-amber-700 bg-amber-50 p-3 rounded-lg">
+            Check your phone for the M-PESA prompt…
+          </div>
+        )}
+        {status === 'success' && (
+          <div className="text-sm text-green-700 bg-green-50 p-3 rounded-lg">
+            Payment received. Your order is being processed.
+          </div>
+        )}
+        {status === 'failed' && (
+          <div className="text-sm text-red-700 bg-red-50 p-3 rounded-lg">
+            Payment failed or timed out. Please try again.
+          </div>
+        )}
+
+        <Button
+          onClick={handlePayment}
+          disabled={loading || phone.length < 9}
+          className="w-full bg-[#1DA84A] hover:bg-[#168a3c] text-white h-12"
+        >
+          {loading ? 'Processing…' : 'Pay with M-PESA'}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+### 10.4 Middleware: Auth Guard + Role Routing
+
+```typescript
+// middleware.ts
+import { createServerClient } from '@supabase/ssr';
+import { NextResponse, type NextRequest } from 'next/server';
+
+const ROLE_ROUTES: Record<string, string> = {
+  patient:    '/dashboard',
+  provider:   '/provider/dashboard',
+  pharmacist: '/pharmacist/dashboard',
+  admin:      '/admin/dashboard',
+  rider:      '/rider',
+};
+
+export async function middleware(request: NextRequest) {
+  const response = NextResponse.next({ request });
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll: () => request.cookies.getAll(),
+        setAll: (cookies) => cookies.forEach(({ name, value, options }) =>
+          response.cookies.set(name, value, options)),
+      },
+    }
+  );
+
+  const { data: { user } } = await supabase.auth.getUser();
+  const path = request.nextUrl.pathname;
+
+  const isPublic = path === '/' || path.startsWith('/login') ||
+                   path.startsWith('/register') || path.startsWith('/verify-otp');
+
+  if (!user && !isPublic) {
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
+
+  if (user && !isPublic) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    const role = profile?.role;
+    if (role) {
+      const allowedPrefix = ROLE_ROUTES[role];
+      const roleRoot = allowedPrefix.split('/')[1];
+      const isOnOwnRoute =
+        path.startsWith(`/${roleRoot}`) || path === allowedPrefix;
+
+      const isShared = path.startsWith('/profile') || path.startsWith('/settings');
+      if (!isOnOwnRoute && !isShared) {
+        return NextResponse.redirect(new URL(allowedPrefix, request.url));
+      }
+    }
+  }
+
+  return response;
+}
+
+export const config = {
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|webp)$).*)'],
+};
+```
+
+---
+
+## 11. Mobile App (Flutter)
+
+### 11.1 Project Structure
+
+```
+apps/mobile/lib/
+├── main.dart
+├── app.dart
+├── core/
+│   ├── config/
+│   │   └── env.dart
+│   ├── theme/
+│   │   ├── app_theme.dart
+│   │   └── colors.dart
+│   ├── router/
+│   │   └── app_router.dart
+│   ├── network/
+│   │   ├── dio_client.dart
+│   │   └── supabase_client.dart
+│   ├── storage/
+│   │   └── secure_storage.dart
+│   └── services/
+│       ├── mpesa_service.dart
+│       ├── ussd_service.dart
+│       ├── sms_service.dart
+│       ├── notification_service.dart
+│       ├── location_service.dart
+│       └── offline_sync_service.dart
+├── features/
+│   ├── auth/
+│   │   ├── screens/
+│   │   │   ├── splash_screen.dart
+│   │   │   ├── onboarding_screen.dart
+│   │   │   ├── login_screen.dart
+│   │   │   ├── register_screen.dart
+│   │   │   └── otp_screen.dart
+│   │   └── providers/auth_provider.dart
+│   ├── home/
+│   │   ├── screens/home_screen.dart
+│   │   └── widgets/
+│   │       ├── quick_actions.dart
+│   │       ├── upcoming_consultation.dart
+│   │       └── health_tips_carousel.dart
+│   ├── consultations/
+│   │   ├── screens/
+│   │   │   ├── appointment_list_screen.dart
+│   │   │   ├── booking_wizard_screen.dart
+│   │   │   └── video_call_screen.dart
+│   │   └── widgets/
+│   ├── pharmacy/
+│   │   ├── screens/
+│   │   │   ├── catalog_screen.dart
+│   │   │   ├── product_detail_screen.dart
+│   │   │   └── cart_screen.dart
+│   │   └── widgets/
+│   ├── prescriptions/
+│   │   ├── screens/
+│   │   │   ├── prescription_list_screen.dart
+│   │   │   ├── prescription_detail_screen.dart
+│   │   │   └── upload_prescription_screen.dart
+│   │   └── widgets/
+│   ├── checkout/
+│   │   ├── screens/
+│   │   │   ├── delivery_screen.dart
+│   │   │   ├── payment_screen.dart
+│   │   │   └── confirmation_screen.dart
+│   │   └── widgets/mpesa_sheet.dart
+│   ├── orders/
+│   │   ├── screens/
+│   │   │   ├── order_list_screen.dart
+│   │   │   └── delivery_tracking_screen.dart
+│   │   └── widgets/
+│   └── profile/
+│       ├── screens/
+│       │   ├── profile_screen.dart
+│       │   ├── consent_screen.dart
+│       │   ├── data_rights_screen.dart
+│       │   └── settings_screen.dart
+│       └── widgets/
+└── shared/
+    ├── widgets/
+    │   ├── trust_badges.dart
+    │   ├── kes_price.dart
+    │   ├── status_badge.dart
+    │   └── language_toggle.dart
+    └── models/
+        ├── order.dart
+        ├── prescription.dart
+        ├── product.dart
+        ├── consultation.dart
+        └── rider.dart
+```
+
+### 11.2 M-PESA Service (Flutter)
+
+```dart
+// lib/core/services/mpesa_service.dart
+import 'package:dio/dio.dart';
+
+class MpesaService {
+  final Dio _dio;
+  final String _baseUrl;
+
+  MpesaService({required Dio dio, required String baseUrl})
+      : _dio = dio,
+        _baseUrl = baseUrl;
+
+  Future<MpesaResponse> initiateStkPush({
+    required String phone,
+    required double amount,
+    required String orderId,
+    required String orderNumber,
+  }) async {
+    try {
+      final res = await _dio.post(
+        '$_baseUrl/api/mpesa/stk-push',
+        data: {
+          'phone': phone,
+          'amount': amount,
+          'orderId': orderId,
+          'orderNumber': orderNumber,
+        },
+      );
+      return MpesaResponse.fromJson(res.data);
+    } on DioException catch (e) {
+      throw MpesaException(e.message ?? 'Payment initiation failed');
+    }
+  }
+
+  /// Polls status until terminal state or timeout.
+  Stream<MpesaStatus> pollStatus(String checkoutRequestId) async* {
+    final deadline = DateTime.now().add(const Duration(seconds: 90));
+    while (DateTime.now().isBefore(deadline)) {
+      final res = await _dio.get('$_baseUrl/api/mpesa/status/$checkoutRequestId');
+      final status = MpesaStatus.fromJson(res.data);
+      yield status;
+      if (status.isTerminal) return;
+      await Future.delayed(const Duration(seconds: 3));
+    }
+    yield MpesaStatus.timedOut();
+  }
+}
+
+class MpesaResponse {
+  final String checkoutRequestId;
+  final String merchantRequestId;
+  final String responseCode;
+  final String customerMessage;
+
+  MpesaResponse({
+    required this.checkoutRequestId,
+    required this.merchantRequestId,
+    required this.responseCode,
+    required this.customerMessage,
+  });
+
+  factory MpesaResponse.fromJson(Map<String, dynamic> json) => MpesaResponse(
+        checkoutRequestId: json['CheckoutRequestID'] ?? '',
+        merchantRequestId: json['MerchantRequestID'] ?? '',
+        responseCode: json['ResponseCode'] ?? '',
+        customerMessage: json['CustomerMessage'] ?? '',
+      );
+}
+
+class MpesaStatus {
+  final String status; // pending | succeeded | failed
+  final String? receipt;
+
+  MpesaStatus({required this.status, this.receipt});
+
+  bool get isTerminal => status == 'succeeded' || status == 'failed';
+
+  factory MpesaStatus.fromJson(Map<String, dynamic> json) => MpesaStatus(
+        status: json['status'] ?? 'pending',
+        receipt: json['mpesa_receipt_number'],
+      );
+
+  factory MpesaStatus.timedOut() => MpesaStatus(status: 'failed');
+}
+
+class MpesaException implements Exception {
+  final String message;
+  MpesaException(this.message);
+  @override
+  String toString() => message;
+}
+```
+
+### 11.3 USSD Fallback Service (Flutter)
+
+```dart
+// lib/core/services/ussd_service.dart
+import 'package:flutter/services.dart';
+
+class UssdService {
+  static const _channel = MethodChannel('com.afyacommerce/ussd');
+
+  /// For feature phones / no-data scenarios.
+  /// Dials the M-PESA PayBill USSD string directly.
+  static Future<String?> initiateUssdPayment({
+    required String amount,
+    required String orderNumber,
+    required String paybill,
+  }) async {
+    try {
+      final ussd = '*334*1*$paybill*$orderNumber*${amount.toStringAsFixed(0)}#';
+      return await _channel.invokeMethod<String>('dialUssd', {'ussdCode': ussd});
+    } on PlatformException catch (e) {
+      throw Exception('USSD dial failed: ${e.message}');
+    }
+  }
+
+  /// Opens native SMS composer pre-filled with an order request.
+  static Future<void> sendSmsOrder({
+    required String pharmacyPhone,
+    required String orderDetails,
+  }) async {
+    await _channel.invokeMethod('sendSms', {
+      'phone': pharmacyPhone,
+      'body': orderDetails,
+    });
+  }
+}
+```
+
+### 11.4 Android USSD Channel (Kotlin)
+
+```kotlin
+// apps/mobile/android/app/src/main/kotlin/com/afyacommerce/MainActivity.kt
+package com.afyacommerce
+
+import android.content.Intent
+import android.net.Uri
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
+
+class MainActivity : FlutterActivity() {
+    private val CHANNEL = "com.afyacommerce/ussd"
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "dialUssd" -> {
+                        val code = call.argument<String>("ussdCode") ?: ""
+                        val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:" +
+                            Uri.encode(code)))
+                        startActivity(intent)
+                        result.success("dialed")
+                    }
+                    "sendSms" -> {
+                        val phone = call.argument<String>("phone") ?: ""
+                        val body = call.argument<String>("body") ?: ""
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("sms:$phone"))
+                        intent.putExtra("sms_body", body)
+                        startActivity(intent)
+                        result.success("opened")
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+}
+```
+
+---
+
+## 12. Design System
+
+### 12.1 Design Tokens
+
+```css
+/* packages/ui/src/tokens.css */
+:root {
+  /* ---- Brand ---- */
+  --color-primary:        #1DA84A;   /* M-PESA green — trust, payment */
+  --color-primary-dark:   #168A3C;
+  --color-primary-light:  #E8F7ED;
+  --color-secondary:      #0066CC;   /* Clinical blue */
+  --color-accent:         #FF6B35;   /* Urgency / CTAs */
+
+  /* ---- Semantic ---- */
+  --color-success: #22C55E;
+  --color-warning: #F59E0B;
+  --color-error:   #EF4444;
+  --color-info:    #3B82F6;
+
+  /* ---- Neutrals ---- */
+  --color-gray-50:  #F9FAFB;
+  --color-gray-100: #F3F4F6;
+  --color-gray-200: #E5E7EB;
+  --color-gray-300: #D1D5DB;
+  --color-gray-500: #6B7280;
+  --color-gray-700: #374151;
+  --color-gray-900: #111827;
+
+  /* ---- Typography ---- */
+  --font-sans: 'Inter', 'Roboto', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --text-xs:   0.75rem;   /* 12px */
+  --text-sm:   0.875rem;  /* 14px */
+  --text-base: 1rem;      /* 16px */
+  --text-lg:   1.125rem;  /* 18px */
+  --text-xl:   1.25rem;   /* 20px */
+  --text-2xl:  1.5rem;    /* 24px */
+  --text-3xl:  1.875rem;  /* 30px */
+  --text-4xl:  2.25rem;   /* 36px */
+
+  --leading-tight:  1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+
+  /* ---- Spacing (4px base) ---- */
+  --space-1:  0.25rem;
+  --space-2:  0.5rem;
+  --space-3:  0.75rem;
+  --space-4:  1rem;
+  --space-5:  1.25rem;
+  --space-6:  1.5rem;
+  --space-8:  2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* ---- Radius ---- */
+  --radius-sm:   0.25rem;
+  --radius-md:   0.5rem;
+  --radius-lg:   1rem;
+  --radius-xl:   1.5rem;
+  --radius-full: 9999px;
+
+  /* ---- Elevation ---- */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.07);
+  --shadow-lg: 0 10px 15px rgba(0,0,0,0.10);
+  --shadow-xl: 0 20px 25px rgba(0,0,0,0.15);
+
+  /* ---- Accessibility ---- */
+  --touch-target-min: 44px;              /* WCAG 2.2 AA */
+  --focus-ring: 2px solid var(--color-primary);
+  --focus-ring-offset: 2px;
+}
+
+/* Low-bandwidth mode: reduced animation, smaller images */
+.low-bandwidth * {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.01ms !important;
+}
+```
+
+### 12.2 Component Inventory
+
+| Component | Variants | Used In |
+|---|---|---|
+| `Button` | primary, secondary, outline, ghost, destructive | All |
+| `Input` | text, tel, email, password, otp | Auth, checkout |
+| `Card` | default, interactive, elevated | Dashboards |
+| `Badge` | success, warning, error, info, neutral | Status indicators |
+| `StatusTracker` | horizontal, vertical | Order tracking |
+| `TrustBadges` | inline, footer, sidebar | Global |
+| `MpesaCheckout` | — | Checkout |
+| `DeliverySelector` | boda, pickup, clinic | Checkout |
+| `ProductCard` | grid, list | Pharmacy |
+| `PrescriptionCard` | compact, full | Prescriptions |
+| `VideoRoom` | fullscreen, pip | Telehealth |
+| `ChatPanel` | embedded, overlay | Telehealth |
+| `LanguageToggle` | EN/SW | Global header |
+| `ConsentGate` | modal, inline | ODPC flows |
+| `AuditLogTable` | — | Admin |
+| `InventoryAlert` | low-stock, near-expiry, expired | Pharmacist |
+
+### 12.3 Accessibility Requirements (WCAG 2.2 AA)
+
+- Minimum touch target: **44 × 44 px**
+- Minimum body text: **16 px**
+- Colour contrast ratio: **≥ 4.5:1** for body text, **≥ 3:1** for large text
+- Full keyboard navigation with visible focus rings
+- Screen reader labels on all icons and images
+- No reliance on colour alone to convey status
+- Language attribute set correctly (`lang="en"` / `lang="sw"`)
+- Form errors announced and linked to inputs via `aria-describedby`
+
+---
+
+## 13. Mockup Specifications
+
+### 13.1 Web — Patient (1440 px)
+
+| # | Screen | Key Elements |
+|---|---|---|
+| W-P-01 | **Landing / Marketing** | Hero ("Your Health, Delivered" / "Afya Yako, Imefikishwa"), trust badges, service cards, testimonials, M-PESA & SHA logos, footer with PPB/ODPC/SHA numbers |
+| W-P-02 | **Registration** | Phone (+254 prefix fixed), OTP flow, profile setup, ODPC consent checkbox with policy link |
+| W-P-03 | **Patient Dashboard** | Top bar (search, notifications, avatar), quick actions (Telehealth, Prescriptions, Track Order, Emergency), upcoming consultation card, recent orders with status, refill reminders, health tips |
+| W-P-04 | **Telehealth Room** | Left 60% video, right 40% tabs (Chat / Notes / Prescription), call controls, connection quality indicator, "End & Prescribe" action |
+| W-P-05 | **Pharmacy Catalog** | Left filter rail (category, price KES, county, Rx toggle), product grid with PPB badge, upload prescription CTA, bilingual search |
+| W-P-06 | **Product Detail** | Images, name + generic + Swahili name, price KES, pharmacy info with trust badges, stock indicator, quantity selector, add to cart |
+| W-P-07 | **Cart** | Line items, quantity editors, subtotal, estimated delivery fee by county, promo code, proceed CTA |
+| W-P-08 | **Checkout — Delivery** | Phone (pre-filled), landmark field, county dropdown, GPS pin-drop (optional), 3 delivery method cards with cost + ETA |
+| W-P-09 | **Checkout — Payment** | M-PESA selected by default, phone input, "Pay KES X" green button, alternative methods (Airtel, Card, SHA), order summary sidebar |
+| W-P-10 | **Order Confirmation** | Order number (AFY-2026-XXXXXX), ETA, SMS confirmation notice, track order CTA |
+| W-P-11 | **Delivery Tracking** | Live map with rider pin, vertical status timeline, rider card (name, phone, plate), proof-of-delivery section, contact rider buttons |
+| W-P-12 | **Profile & Consent** | Profile details, language toggle, consent toggles with timestamps, data rights (download / delete), audit trail of own data access |
+
+### 13.2 Web — Provider (1440 px)
+
+| # | Screen | Key Elements |
+|---|---|---|
+| W-D-01 | **Provider Dashboard** | Today's schedule, patient queue, pending prescriptions, earnings summary (KES) |
+| W-D-02 | **Appointments** | Calendar view (day/week), list of upcoming consults with patient names, join buttons |
+| W-D-03 | **Patient Record** | Demographics, allergies (highlighted), chronic conditions, medication history timeline, consultation history |
+| W-D-04 | **New Prescription** | Medication search (SHA formulary + generic), dosage/frequency/duration, refills, interaction warnings, clinical notes, FHIR preview, sign & send |
+| W-D-05 | **Telehealth Room** | Same as W-P-04 with provider controls (prescribe, notes, end session) |
+| W-D-06 | **Consultation History** | Filterable list with SOAP notes, prescriptions issued, follow-up flags |
+| W-D-07 | **Earnings** | Consultation fees, SHA claims status, payout history to M-PESA |
+| W-D-08 | **Settings** | Availability slots, consultation fee, specialisation, licence details |
+
+### 13.3 Web — Pharmacist (1440 px)
+
+| # | Screen | Key Elements |
+|---|---|---|
+| W-H-01 | **Pharmacy Dashboard** | KPI cards (pending Rx, orders to dispatch, low stock, near expiry), today's revenue KES |
+| W-H-02 | **Prescription Queue** | Table with priority badges, patient (masked), medication, provider, status, actions (Approve / Query / Dispense) |
+| W-H-03 | **Inventory** | Product table with stock, batch, expiry, PPB reg number; bulk actions; CSV import; low-stock filter |
+| W-H-04 | **Inventory Alert Detail** | Low stock / near-expiry / expired lists with reorder CTA |
+| W-H-05 | **Order Fulfillment** | Map view of pending deliveries, rider assignment, dispatch action, chain-of-custody log |
+| W-H-06 | **Order Detail** | Patient delivery info (phone, landmark), items, payment status, dispatch controls, proof-of-delivery viewer |
+| W-H-07 | **Controlled Substances Log** | Separate register for controlled drugs with dual-signature workflow |
+| W-H-08 | **Reports** | Sales, top medications, expiry write-offs, PPB-compliant audit exports |
+
+### 13.4 Web — Admin (1440 px)
+
+| # | Screen | Key Elements |
+|---|---|---|
+| W-A-01 | **Admin Dashboard** | Platform KPIs (orders, revenue KES, active patients, prescriptions), charts (orders over time, revenue by county, top medications, payment split) |
+| W-A-02 | **Audit Log Viewer** | Filterable table: timestamp, actor, role, action, resource, PHI flag, purpose, IP. Export to CSV (audited) |
+| W-A-03 | **Compliance Status** | Cards for ODPC registration, PPB licence, DHA notification, SHA empanelment, DPIA status — each with expiry and evidence link |
+| W-A-04 | **User Management** | Roles, activation, MFA status, session revocation |
+| W-A-05 | **Pharmacy Registry** | Licensed pharmacies, PPB licence validation, KMHFR sync status |
+| W-A-06 | **Analytics** | Cohort retention, funnel conversion, delivery performance by county, payment success rates |
+
+### 13.5 Mobile — Patient (375 px)
+
+| # | Screen | Key Elements |
+|---|---|---|
+| M-01 | **Splash** | Logo + tagline, 2 s animated |
+| M-02 | **Onboarding** | 3 slides (Consult Doctors / Order Medicines / Delivered to Your Door), bilingual, skip |
+| M-03 | **Login** | +254 phone input with flag, Send OTP |
+| M-04 | **OTP Verify** | 6-digit PIN, auto-advance, resend timer |
+| M-05 | **Profile Setup** | Name, DOB, gender, National ID (optional), SHA number (optional), ODPC consent |
+| M-06 | **Home** | Greeting, quick actions row, upcoming consultation card, health tips carousel (Swahili), recent orders |
+| M-07 | **Consult — Provider List** | Specialty filter chips, provider cards with fee KES, rating, book button |
+| M-08 | **Booking Wizard** | Step 1 slot, Step 2 symptoms, Step 3 payment, Step 4 confirm |
+| M-09 | **Video Call** | Fullscreen video, PiP self-view, bottom controls (mute, camera, chat, end) |
+| M-10 | **Pharmacy Catalog** | Search with voice + barcode icons, category chips, 2-column product grid, floating cart |
+| M-11 | **Product Detail** | Image carousel, price KES, pharmacy trust badges, add to cart |
+| M-12 | **Cart** | Item list, quantity steppers, subtotal, delivery estimate, checkout CTA |
+| M-13 | **Delivery Selection** | Bottom sheet: Boda (KES 200, 2 h), Pickup Point (KES 50, 24 h), Clinic (Free) |
+| M-14 | **M-PESA Payment** | Branded sheet, phone pre-filled, "Lipa na M-PESA", instruction text |
+| M-15 | **Order Confirmation** | Confetti, order number, ETA, SMS notice, track CTA |
+| M-16 | **Delivery Tracking** | Fullscreen map, rider card (call / SMS), status timeline, share location |
+| M-17 | **Prescription List** | Cards with medication, status badge, refill count |
+| M-18 | **Prescription Detail** | Full details, QR code, request refill, set reminder, SHA claim status |
+| M-19 | **Upload Prescription** | Camera / gallery, OCR extraction, manual correction form |
+| M-20 | **Profile & Settings** | Language (EN/SW), notifications, consent management, data rights, help, about |
+| M-21 | **Consent Management** | Granular toggles with last-updated timestamps |
+| M-22 | **Data Rights** | Download my data, delete account (with confirmation) |
+
+### 13.6 Mobile — Rider (375 px)
+
+| # | Screen | Key Elements |
+|---|---|---|
+| R-01 | **Login** | Phone + OTP |
+| R-02 | **Availability Toggle** | Online / Offline switch, current county |
+| R-03 | **Job Offer** | Pickup pharmacy, dropoff landmark, distance, fee, accept / decline (30 s timer) |
+| R-04 | **Active Delivery** | Map with route, patient phone, call / SMS, "Arrived at Pharmacy" → "Picked Up" → "Delivered" |
+| R-05 | **Proof of Delivery** | Camera capture, OTP entry from patient, GPS stamp, submit |
+| R-06 | **Earnings** | Daily / weekly earnings KES, payout to M-PESA, trip history |
+| R-07 | **Transport Licence** | Licence number, expiry, renewal reminder |
+
+### 13.7 Design Token Application Examples
+
+```
+Primary CTA:        bg-[#1DA84A] text-white rounded-lg h-12
+Secondary CTA:      border border-[#1DA84A] text-[#1DA84A] rounded-lg
+Status — Paid:      bg-green-50 text-green-700 border-green-200
+Status — Pending:   bg-amber-50 text-amber-700 border-amber-200
+Status — Failed:    bg-red-50 text-red-700 border-red-200
+Trust badge:        text-xs text-gray-600 flex items-center gap-1.5
+Card:               bg-white rounded-xl shadow-sm border border-gray-100 p-4
+```
+
+---
+
+## 14. Environment Variables
+
+```env
+# ============================================================
+# SUPABASE (self-hosted, Kenyan VPS)
+# ============================================================
+SUPABASE_URL=https://supabase.afyacommerce.co.ke
+SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+NEXT_PUBLIC_SUPABASE_URL=https://supabase.afyacommerce.co.ke
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+
+# ============================================================
+# M-PESA DARAJA
+# ============================================================
+MPESA_CONSUMER_KEY=your-consumer-key
+MPESA_CONSUMER_SECRET=your-consumer-secret
+MPESA_PASSKEY=your-passkey
+MPESA_SHORTCODE=your-paybill-shortcode
+MPESA_ENVIRONMENT=production
+MPESA_CALLBACK_BASE_URL=https://api.afyacommerce.co.ke
+NEXT_PUBLIC_MPESA_PAYBILL=your-paybill-number
+
+# ============================================================
+# AFRICA'S TALKING
+# ============================================================
+AT_API_KEY=your-at-api-key
+AT_USERNAME=afyacommerce
+AT_SENDER_ID=AFYACOMMERCE
+
+# ============================================================
+# HIE / FHIR
+# ============================================================
+HIE_BASE_URL=https://hie.health.go.ke/api
+HIE_CLIENT_ID=your-hie-client-id
+HIE_CLIENT_SECRET=your-hie-client-secret
+
+# ============================================================
+# SHA
+# ============================================================
+SHA_API_BASE_URL=https://afyayangu.go.ke/api
+SHA_CLIENT_ID=your-sha-client-id
+SHA_CLIENT_SECRET=your-sha-client-secret
+
+# ============================================================
+# CLOUDFLARE
+# ============================================================
+CLOUDFLARE_ACCOUNT_ID=your-account-id
+CLOUDFLARE_API_TOKEN=your-api-token
+CLOUDFLARE_R2_BUCKET=afyacommerce-assets
+
+# ============================================================
+# SECURITY & COMPLIANCE
+# ============================================================
+JWT_SECRET=your-256-bit-secret
+AUDIT_LOG_RETENTION_DAYS=2190        # 6 years per PPB
+ODPC_REGISTRATION_NUMBER=your-odpc-number
+PPB_LICENCE_NUMBER=your-ppb-licence
+KMHFR_FACILITY_ID=your-kmhfr-id
+DHA_CERTIFICATION_ID=your-dha-cert
+CONSENT_POLICY_VERSION=1.0.0
+
+# ============================================================
+# MAPS & LOCATION
+# ============================================================
+NEXT_PUBLIC_MAPS_PROVIDER=maplibre
+NEXT_PUBLIC_MAP_TILE_URL=https://tiles.afyacommerce.co.ke/{z}/{x}/{y}.png
+
+# ============================================================
+# FEATURE FLAGS
+# ============================================================
+NEXT_PUBLIC_ENABLE_USSD_FALLBACK=true
+NEXT_PUBLIC_ENABLE_SHA_CLAIMS=true
+NEXT_PUBLIC_LOW_BANDWIDTH_DEFAULT=false
+```
+
+---
+
+## 15. Deployment Runbook
+
+### 15.1 Provision Kenyan Infrastructure
+
+```bash
+# Recommended VPS: 8 vCPU, 32 GB RAM, 500 GB NVMe SSD
+# Providers: HOSTAFRICA, Truehost, Safaricom Cloud
+
+# 1. Harden the server
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y ufw fail2ban
+sudo ufw allow 22,80,443/tcp
+sudo ufw enable
+sudo systemctl enable fail2ban
+
+# 2. Install Docker
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+newgrp docker
+
+# 3. Install Supabase (self-hosted)
+git clone --depth 1 https://github.com/supabase/supabase
+cd supabase/docker
+cp .env.example .env
+# Edit .env: POSTGRES_PASSWORD, JWT_SECRET, ANON_KEY,
+#            SERVICE_ROLE_KEY, SITE_URL, API_EXTERNAL_URL,
+#            ENABLE_PG_AUDIT=true
+
+# 4. Configure TLS (Caddy or Nginx + Let's Encrypt)
+# 5. Start Supabase
+docker compose up -d
+
+# 6. Verify
+curl https://supabase.afyacommerce.co.ke/rest/v1/
+```
+
+### 15.2 Apply Database Migrations
+
+```bash
+cd supabase
+npx supabase db push --db-url "postgresql://postgres:$PASSWORD@localhost:5432/postgres"
+
+# Verify RLS is enabled on all tables
+psql "$DB_URL" -c "
+  SELECT tablename, rowsecurity
+  FROM pg_tables
+  WHERE schemaname = 'public'
+  ORDER BY tablename;
+"
+```
+
+### 15.3 Deploy Cloudflare Workers
+
+```bash
+npm install -g wrangler
+wrangler login
+
+# --- M-PESA Worker ---
+cd workers/mpesa
+wrangler secret put MPESA_CONSUMER_KEY
+wrangler secret put MPESA_CONSUMER_SECRET
+wrangler secret put MPESA_PASSKEY
+wrangler secret put MPESA_SHORTCODE
+wrangler secret put SUPABASE_URL
+wrangler secret put SUPABASE_SERVICE_KEY
+wrangler deploy
+
+# --- FHIR Worker ---
+cd ../fhir
+wrangler kv:namespace create HIE_TOKEN_CACHE
+wrangler secret put HIE_CLIENT_ID
+wrangler secret put HIE_CLIENT_SECRET
+wrangler secret put HIE_BASE_URL
+wrangler deploy
+
+# --- Notifications Worker ---
+cd ../notifications
+wrangler queues create sms-jobs
+wrangler secret put AT_API_KEY
+wrangler secret put AT_USERNAME
+wrangler deploy
+
+# --- AI Triage Worker ---
+cd ../ai-triage
+wrangler deploy
+```
+
+### 15.4 Deploy Frontend
+
+```bash
+# Next.js → Cloudflare Pages
+cd apps/web
+npm ci
+npm run build
+npx wrangler pages deploy .next/static \
+  --project-name afyacommerce \
+  --branch main
+
+# Flutter → Play Store / App Store
+cd apps/mobile
+flutter build appbundle --release
+flutter build ipa --release
+```
+
+### 15.5 Configure Cloudflare Zero Trust
+
+1. Cloudflare Dashboard → **Zero Trust** → **Access** → **Applications**
+2. Add application: `admin.afyacommerce.co.ke`
+3. Policy: Allow if `role` in (`admin`, `pharmacist`)
+4. Enforce **MFA** (TOTP or SMS)
+5. Optional: device posture check
+6. Session duration: 8 hours
+
+### 15.6 Regulatory Registrations
+
+| Step | Authority | Portal | SLA |
+|---|---|---|---|
+| 1. ODPC registration | Office of the Data Protection Commissioner | odpc.go.ke | 14–30 days |
+| 2. DHA notification | Digital Health Agency | Within 7 days of ODPC | 7 days |
+| 3. PPB digital pharmacy licence | Pharmacy & Poisons Board | pharmacyboardkenya.org | 30–60 days |
+| 4. KMHFR facility registration | Ministry of Health | kmhfr.health.go.ke | 7–14 days |
+| 5. SHA empanelment | Social Health Authority | sha.go.ke | 30–90 days |
+| 6. Platform certification | Digital Health Agency | Certification Framework | 30–60 days |
+
+### 15.7 Backup & Disaster Recovery
+
+```bash
+# Daily encrypted Postgres backup to Kenyan object storage
+0 2 * * * /usr/local/bin/pg_dump "$DB_URL" \
+  | gpg --encrypt --recipient ops@afyacommerce.co.ke \
+  | aws s3 cp - s3://afyacommerce-backups/$(date +\%F).sql.gpg \
+      --endpoint-url https://minio.afyacommerce.co.ke
+
+# Retention: 30 daily, 12 monthly, 7 yearly
+# RPO: 24 hours | RTO: 4 hours
+# Quarterly restore drills mandatory
+```
+
+---
+
+## 16. Testing & QA Checklist
+
+### 16.1 Security & RLS
+
+- [ ] RLS enabled on every table containing patient-adjacent data
+- [ ] Patient A cannot read Patient B's records (verify via raw SQL as authenticated user)
+- [ ] Provider can only read patients they have consulted
+- [ ] Pharmacist can only read prescriptions routed to their pharmacy
+- [ ] Rider can only read orders assigned to them
+- [ ] Admin cannot modify prescriptions (read-only on clinical data)
+- [ ] `audit_log` rejects UPDATE and DELETE
+- [ ] Service-role key never exposed to client bundle
+
+### 16.2 Payments
+
+- [ ] M-PESA STK Push succeeds in sandbox
+- [ ] M-PESA callback correctly updates `payment_transactions` and `orders`
+- [ ] Failed payment does not mark order as paid
+- [ ] Duplicate callbacks are idempotent
+- [ ] B2C refund flow works
+- [ ] Airtel Money fallback works
+- [ ] SHA claims submission succeeds
+
+### 16.3 Clinical
+
+- [ ] FHIR `MedicationRequest` validates against HL7 validator
+- [ ] Prescription → pharmacy routing respects pharmacy licence
+- [ ] Drug interaction warnings surface correctly
+- [ ] Allergy conflicts block dispensing
+- [ ] Audit log captures every prescription read/write
+- [ ] SOAP notes saved and retrievable
+
+### 16.4 Delivery
+
+- [ ] Boda dispatch assigns nearest available rider
+- [ ] Live GPS tracking updates within 10 s
+- [ ] Proof-of-delivery requires both photo and OTP
+- [ ] Chain-of-custody log is complete from pharmacy to patient
+- [ ] Pickup point flow sends SMS code
+
+### 16.5 Frontend
+
+- [ ] Swahili localization renders correctly on all screens
+- [ ] Low-bandwidth mode loads dashboard < 3 s on simulated 3G
+- [ ] Offline-first: catalog browsable without connectivity
+- [ ] USSD fallback dials correct PayBill string
+- [ ] SMS order composer opens pre-filled
+
+### 16.6 Compliance
+
+- [ ] Consent records created for every new patient
+- [ ] Consent revocation immediately stops processing
+- [ ] Data export (DPA right of access) produces complete archive
+- [ ] Account deletion anonymises PHI but preserves audit log
+- [ ] Audit log retention set to 2190 days
+
+---
+
+## 17. Compliance Checklist
+
+| # | Requirement | Authority | Evidence | Status |
+|---|---|---|---|---|
+| 1 | ODPC registration as data controller | ODPC | Certificate of Data Handler | ☐ |
+| 2 | DHA notification (within 7 days) | Digital Health Agency | Acknowledgement receipt | ☐ |
+| 3 | DPIA completed and signed | ODPC | DPIA report | ☐ |
+| 4 | PHI on Kenyan infrastructure | DPA §50 | Infrastructure diagram + VPS contract | ☐ |
+| 5 | PPB digital pharmacy licence | PPB | Licence number displayed | ☐ |
+| 6 | KMHFR facility registration | MoH | Facility ID | ☐ |
+| 7 | Platform certification | DHA | Certification certificate | ☐ |
+| 8 | Telemedicine provider registry listing | DHA | Registry IDs | ☐ |
+| 9 | FHIR R4 / LOINC compliance | DHA | Validator report | ☐ |
+| 10 | Pharmaceutical transport licences | PPB | Partner licence copies | ☐ |
+| 11 | SHA empanelment | SHA | Empanelment confirmation | ☐ |
+| 12 | Audit log retention (6 years) | PPB | `AUDIT_LOG_RETENTION_DAYS=2190` | ☐ |
+| 13 | Cloudflare Zero Trust for admin access | Internal | Access policy screenshot | ☐ |
+| 14 | MFA enforced for all staff accounts | Internal | Auth config | ☐ |
+| 15 | Quarterly penetration test | Internal | Test report | ☐ |
+| 16 | Annual DPIA review | ODPC | Review log | ☐ |
+
+---
+
+## 18. Success Criteria
+
+The build is complete when all of the following are demonstrable:
+
+1. A patient can register with a Kenyan phone number, verify via SMS OTP, and give ODPC consent.
+2. A patient can browse the pharmacy catalog, search bilingually (English/Swahili), and filter by county.
+3. A patient can upload a prescription; OCR extracts medication names with manual correction.
+4. A patient can book a telehealth consultation and complete a video call.
+5. A provider can issue a FHIR-compliant e-prescription during or after a consultation.
+6. A pharmacist can view the prescription, verify against allergies, and dispense.
+7. A patient can check out with M-PESA; STK Push prompt arrives on their phone; payment confirms within 90 seconds.
+8. An order triggers boda-boda dispatch; a rider accepts and delivers with photo + OTP proof.
+9. The patient can track the rider live on a map.
+10. Every PHI access is logged in the immutable audit log with actor, action, timestamp, and IP.
+11. All PHI resides on Kenyan infrastructure, verified by network inspection.
+12. The platform passes a DPIA and produces a compliant data export on demand.
+13. The dashboard loads in under 3 seconds on a simulated 3G connection.
+14. USSD fallback successfully dials the M-PESA PayBill string on an Android feature phone.
+
+---
+
+## 19. Known Limitations & Risks
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| **Cloudflare R2 has no African region** | Non-PHI data leaves Kenya | Keep PHI exclusively on Kenyan VPS; document in DPIA |
+| **Cloudflare Workers not explicitly HIPAA-listed** | Cannot process PHI in Workers | Treat Workers as network layer only; process PHI in Supabase Edge Functions on Kenyan VPS |
+| **Supabase HIPAA add-on unavailable on Free/Pro** | Cloud BAA not possible | Self-host to avoid needing a BAA for PHI storage |
+| **Self-hosting Supabase requires DevOps capability** | Operational overhead | Budget for a dedicated DevOps engineer; use automated backup and monitoring |
+| **Cloudflare D1 unsuitable for PHI** | 10 GB limit, single-threaded | Use Supabase PostgreSQL for all persistent data |
+| **M-PESA callback latency** | Payment status delay up to 90 s | Poll with timeout; show clear "check your phone" UX |
+| **No universal Kenyan addressing** | Delivery failures | Landmark field + GPS + phone call fallback |
+| **Intermittent rural connectivity** | App unusable offline | Offline-first cache; USSD/SMS fallback |
+| **County-level health system fragmentation** | Continuity of care gaps | FHIR-based integration with county HMIS where available |
+| **Regulatory timelines (SHA empanelment 30–90 days)** | Delayed launch of claims | Launch without SHA claims; add once empanelled |
+
+---
+
+## Appendix A: Kenya Counties (for delivery dropdowns)
+
+```
+Baringo, Bomet, Bungoma, Busia, Elgeyo-Marakwet, Embu, Garissa, Homa Bay,
+Isiolo, Kajiado, Kakamega, Kericho, Kiambu, Kilifi, Kirinyaga, Kisii,
+Kisumu, Kitui, Kwale, Laikipia, Lamu, Machakos, Makueni, Mandera, Marsabit,
+Meru, Migori, Mombasa, Murang'a, Nairobi, Nakuru, Nandi, Narok, Nyamira,
+Nyandarua, Nyeri, Samburu, Siaya, Taita-Taveta, Tana River, Tharaka-Nithi,
+Trans Nzoia, Turkana, Uasin Gishu, Vihiga, Wajir, West Pokot
+```
+
+## Appendix B: Kenyan Phone Validation Regex
+
+```typescript
+// Accepts: +254712345678, 0712345678, 254712345678
+export const KENYAN_PHONE_REGEX = /^(?:\+254|254|0)(7\d{8}|1\d{8})$/;
+
+export function normalizeKenyanPhone(input: string): string {
+  const digits = input.replace(/\D/g, '');
+  if (digits.startsWith('254')) return `+${digits}`;
+  if (digits.startsWith('0'))   return `+254${digits.slice(1)}`;
+  return `+254${digits}`;
+}
+```
+
+## Appendix C: KES Currency Formatting
+
+```typescript
+export function formatKES(amount: number): string {
+  return new Intl.NumberFormat('en-KE', {
+    style: 'currency',
+    currency: 'KES',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+// formatKES(1500) → "KSh 1,500.00"
+```
+
+## Appendix D: Bilingual String Keys (sample)
+
+```json
+{
+  "home.greeting": {
+    "en": "Hello",
+    "sw": "Habari"
+  },
+  "action.book_consultation": {
+    "en": "Book Consultation",
+    "sw": "Weka Miadi"
+  },
+  "action.pay_with_mpesa": {
+    "en": "Pay with M-PESA",
+    "sw": "Lipa na M-PESA"
+  },
+  "order.status.dispatched": {
+    "en": "Dispatched to Rider",
+    "sw": "Imetumwa kwa Mwendeshaji"
+  },
+  "order.status.delivered": {
+    "en": "Delivered",
+    "sw": "Imefikishwa"
+  },
+  "prescription.request_refill": {
+    "en": "Request Refill",
+    "sw": "Omba Kuongeza"
+  },
+  "consent.phi_processing": {
+    "en": "Allow processing of my health data for treatment",
+    "sw": "Ruhusu matumizi ya data yangu ya afya kwa matibabu"
+  }
+}
+```
+
+---
+
+**End of Master Build Specification**
+
+*This document is the single source of truth for the AfyaCommerce build. All implementation decisions must trace back to a section herein. Any deviation requires a documented amendment.*

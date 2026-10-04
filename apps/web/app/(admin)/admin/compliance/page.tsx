@@ -1,0 +1,16 @@
+import { ArrowRight, Building2, CheckCircle2, ClipboardCheck, FileCheck2, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { PageHeader } from '@/components/shared/PageHeader';
+import { Badge } from '@/components/ui/badge';
+import { Card } from '@/components/ui/card';
+
+const controls = [
+  { title: 'ODPC registration', authority: 'Office of the Data Protection Commissioner', status: 'Current', detail: 'Registration number on file', expiry: 'Renews 18 Mar 2027', icon: ShieldCheck, tone: 'green' as const },
+  { title: 'Digital Health Agency', authority: 'National health platform certification', status: 'In review', detail: 'Evidence pack submitted', expiry: 'Response due 12 Oct 2026', icon: Building2, tone: 'orange' as const },
+  { title: 'PPB digital pharmacy licence', authority: 'Pharmacy & Poisons Board', status: 'Current', detail: 'PPB/2026/AFY-1048', expiry: 'Renews 14 Jan 2027', icon: ClipboardCheck, tone: 'green' as const },
+  { title: 'SHA empanelment', authority: 'Social Health Authority', status: 'Active', detail: 'Afya Yangu connected', expiry: 'Review 30 Nov 2026', icon: FileCheck2, tone: 'green' as const },
+  { title: 'DPIA & data flows', authority: 'ODPC Data Protection Impact Assessment', status: 'Action needed', detail: 'Quarterly review due', expiry: 'Due 30 Sep 2026', icon: TriangleAlert, tone: 'orange' as const }
+];
+
+export default function CompliancePage() {
+  return <div><PageHeader eyebrow="Governance" title="Compliance status" description="Evidence and renewal status for the controls that keep AfyaCommerce safe and accountable." action={<Badge tone="success"><ShieldCheck className="h-3.5 w-3.5" />PHI locality: Kenya</Badge>} /><div className="grid gap-4 lg:grid-cols-2">{controls.map((control) => { const Icon = control.icon; return <Card key={control.title} className="p-0"><div className="flex items-start gap-4 p-5"><span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${control.tone === 'green' ? 'bg-green-50 text-green-700' : 'bg-orange-50 text-orange-700'}`}><Icon className="h-5 w-5" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><div><h2 className="font-extrabold">{control.title}</h2><p className="mt-1 text-xs text-[var(--color-gray-500)]">{control.authority}</p></div><Badge tone={control.tone === 'green' ? 'success' : 'warning'}>{control.status}</Badge></div><div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-gray-100)] pt-3 text-xs"><span className="font-semibold text-[var(--color-gray-600)]">{control.detail}</span><span className={control.tone === 'green' ? 'text-green-700' : 'text-orange-700'}>{control.expiry}</span></div><button type="button" className="mt-3 inline-flex min-h-11 items-center gap-1 text-xs font-bold text-[var(--color-secondary)]">View evidence<ArrowRight className="h-3.5 w-3.5" /></button></div></div></Card>; })}</div><Card className="mt-6 flex items-start gap-3 border-blue-100 bg-blue-50"><CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-blue-700" /><div><p className="text-sm font-extrabold text-blue-900">Evidence library</p><p className="mt-1 text-sm leading-6 text-blue-800">Certificates, licences, DPAs, and audit exports are versioned. Evidence access is itself audited.</p></div></Card></div>;
+}

@@ -1,0 +1,30 @@
+name = "afyacommerce-api-gateway"
+main = "src/index.ts"
+compatibility_date = "2026-09-25"
+
+[vars]
+ALLOWED_ORIGIN = "https://afyacommerce.co.ke"
+
+[[services]]
+binding = "MPESA"
+service = "afyacommerce-mpesa"
+
+[[services]]
+binding = "FHIR"
+service = "afyacommerce-fhir"
+
+[[services]]
+binding = "NOTIFICATIONS"
+service = "afyacommerce-notifications"
+
+[[services]]
+binding = "AI_TRIAGE"
+service = "afyacommerce-ai-triage"
+
+[[services]]
+binding = "DISPATCH"
+service = "afyacommerce-dispatch"
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "REPLACE_WITH_GATEWAY_KV_ID"

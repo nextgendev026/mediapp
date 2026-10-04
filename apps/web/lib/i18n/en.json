@@ -1,0 +1,17 @@
+{
+  "home.greeting": "Hello",
+  "home.subtitle": "Your health, delivered",
+  "action.book_consultation": "Book consultation",
+  "action.pay_with_mpesa": "Pay with M-PESA",
+  "action.request_refill": "Request refill",
+  "action.track_order": "Track order",
+  "action.upload_prescription": "Upload prescription",
+  "order.status.pending": "Pending",
+  "order.status.dispatched": "Dispatched to rider",
+  "order.status.in_transit": "On the way",
+  "order.status.delivered": "Delivered",
+  "consent.phi_processing": "Allow processing of my health data for treatment",
+  "common.save": "Save changes",
+  "common.cancel": "Cancel",
+  "common.continue": "Continue"
+}

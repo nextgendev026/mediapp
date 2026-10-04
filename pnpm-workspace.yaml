@@ -1,0 +1,6 @@
+packages:
+  - apps/*
+  - workers/*
+  - services/*
+  - supabase/functions/*
+  - packages/*

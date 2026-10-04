@@ -1,0 +1,15 @@
+'use client';
+
+import Link from 'next/link';
+import { Minus, Plus, ShoppingBag, Trash2 } from 'lucide-react';
+import { OrderSummary } from '@/components/checkout/OrderSummary';
+import { PageHeader } from '@/components/shared/PageHeader';
+import { useCart } from '@/components/shared/AppProviders';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { formatKES } from '@/lib/utils/format-currency';
+
+export default function CartPage() {
+  const { items, subtotal, updateQuantity, removeItem } = useCart();
+  return <div><PageHeader eyebrow="Your basket" title="Cart" description="Review your medicines before checkout. Items are reserved for 30 minutes." />{items.length ? <div className="grid gap-6 lg:grid-cols-[1fr_0.38fr]"><div className="space-y-3">{items.map((item) => <Card key={item.product.id} className="p-4"><div className="flex items-center gap-4"><span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-100 to-orange-50 text-3xl" aria-hidden="true">💊</span><div className="min-w-0 flex-1"><Link href={`/pharmacy/${item.product.id}`} className="text-sm font-extrabold hover:text-[var(--color-primary-dark)]">{item.product.name}</Link><p className="mt-1 text-xs text-[var(--color-gray-500)]">{item.product.genericName}</p><p className="mt-2 text-sm font-extrabold">{formatKES(item.product.price)}</p></div><div className="flex items-center gap-2"><div className="flex items-center rounded-lg border border-[var(--color-gray-300)]"><button type="button" className="flex h-10 w-10 items-center justify-center" onClick={() => updateQuantity(item.product.id, item.quantity - 1)} aria-label={`Decrease ${item.product.name}`}><Minus className="h-4 w-4" /></button><span className="w-8 text-center text-sm font-bold" aria-label={`${item.quantity} items`}>{item.quantity}</span><button type="button" className="flex h-10 w-10 items-center justify-center" onClick={() => updateQuantity(item.product.id, item.quantity + 1)} aria-label={`Increase ${item.product.name}`}><Plus className="h-4 w-4" /></button></div><button type="button" className="flex h-10 w-10 items-center justify-center rounded-lg text-[var(--color-gray-500)] hover:bg-red-50 hover:text-red-700" onClick={() => removeItem(item.product.id)} aria-label={`Remove ${item.product.name}`}><Trash2 className="h-4 w-4" /></button></div></div></Card>)}</div><OrderSummary deliveryFee={200} /></div> : <Card className="flex flex-col items-center px-5 py-16 text-center"><span className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--color-primary-light)] text-[var(--color-primary-dark)]"><ShoppingBag className="h-8 w-8" /></span><h2 className="mt-5 text-xl font-extrabold">Your cart is empty</h2><p className="mt-2 max-w-sm text-sm text-[var(--color-gray-500)]">Find trusted medicines and health essentials in our licensed pharmacy catalog.</p><Link href="/pharmacy" className="mt-6 inline-flex min-h-11 items-center rounded-lg bg-[var(--color-primary)] px-5 text-sm font-bold text-white hover:bg-[var(--color-primary-dark)]">Browse pharmacy</Link></Card>}</div>;
+}

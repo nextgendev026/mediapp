@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Offline — AfyaCommerce</title>
+<meta name="theme-color" content="#1da84a" />
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; background: #f7faf8; color: #123524; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+  .card { max-width: 420px; text-align: center; background: #fff; border: 1px solid #e3ebe6; border-radius: 20px; padding: 40px 28px; }
+  .logo { width: 64px; height: 64px; margin: 0 auto 20px; border-radius: 16px; background: #1da84a; display: grid; place-items: center; color: #fff; font-size: 34px; font-weight: 800; }
+  h1 { font-size: 22px; margin-bottom: 10px; }
+  p { color: #557065; font-size: 15px; line-height: 1.6; }
+  button { margin-top: 24px; min-height: 48px; padding: 0 28px; border: 0; border-radius: 12px; background: #1da84a; color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; }
+  button:active { background: #0d5c2a; }
+  .tip { margin-top: 18px; font-size: 12px; color: #8aa296; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">+</div>
+    <h1>You’re offline</h1>
+    <p>No connection right now. Your care info stays private on your device — reconnect to book consultations, reorder medicines, or chat with your clinician.</p>
+    <button onclick="location.reload()">Try again</button>
+    <p class="tip">AfyaCommerce works best with a stable connection on Safaricom, Airtel, or Wi‑Fi.</p>
+  </div>
+</body>
+</html>
