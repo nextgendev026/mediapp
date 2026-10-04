@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { requireRole } from '@/lib/server/guard';
-import { getDb, mutate, newId, nextNumber, type LabOrder } from '@/lib/server/store';
+import { getDb, mutate, nextNumber, type LabOrder } from '@/lib/server/store';
 import { recordAudit } from '@/lib/server/audit';
 import { notify } from '@/lib/server/notify';
 import { enumOf, isSameOriginMutation, str } from '@/lib/server/security';
 import { createInvoice } from '@/lib/server/billing';
+import { VisitStage, stageIndex, stageOf } from '@/lib/workflow';
+import { moveVisit } from '@/lib/server/visits';
 
 export const runtime = 'nodejs';
 
@@ -29,6 +31,7 @@ interface LabOrderView {
   interpretation?: string | undefined;
   createdAt: string;
   resultedAt?: string | undefined;
+  visitStage: string | null;
 }
 
 export async function GET(request: Request) {
@@ -47,24 +50,28 @@ export async function GET(request: Request) {
   rows.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 
   const nameOf = (id: string): string => db.users.find((u) => u.id === id)?.fullName ?? 'Unknown';
-  const labOrders: LabOrderView[] = rows.map((o) => ({
-    id: o.id,
-    appointmentId: o.appointmentId,
-    encounterId: o.encounterId,
-    patientId: o.patientId,
-    patientName: nameOf(o.patientId),
-    orderedBy: o.orderedBy,
-    orderedByName: nameOf(o.orderedBy),
-    modality: o.modality,
-    test: o.test,
-    clinicalQuestion: o.clinicalQuestion,
-    priceKes: o.priceKes,
-    status: o.status,
-    result: o.result,
-    interpretation: o.interpretation,
-    createdAt: o.createdAt,
-    resultedAt: o.resultedAt
-  }));
+  const labOrders: LabOrderView[] = rows.map((o) => {
+    const visit = o.appointmentId ? db.appointments.find((a) => a.id === o.appointmentId) : undefined;
+    return {
+      id: o.id,
+      appointmentId: o.appointmentId,
+      encounterId: o.encounterId,
+      patientId: o.patientId,
+      patientName: nameOf(o.patientId),
+      orderedBy: o.orderedBy,
+      orderedByName: nameOf(o.orderedBy),
+      modality: o.modality,
+      test: o.test,
+      clinicalQuestion: o.clinicalQuestion,
+      priceKes: o.priceKes,
+      status: o.status,
+      result: o.result,
+      interpretation: o.interpretation,
+      createdAt: o.createdAt,
+      resultedAt: o.resultedAt,
+      visitStage: visit ? stageOf(visit) : null
+    };
+  });
 
   return NextResponse.json({ labOrders });
 }
@@ -105,9 +112,9 @@ export async function POST(request: Request) {
   const patient = db.users.find((u) => u.id === patientId && u.role === 'patient');
   if (!patient) return NextResponse.json({ error: 'Patient not found.' }, { status: 404 });
 
-  if (appointmentId) {
-    const appt = db.appointments.find((a) => a.id === appointmentId);
-    if (!appt || appt.patientId !== patientId) return NextResponse.json({ error: 'Appointment mismatch.' }, { status: 400 });
+  const visit = appointmentId ? db.appointments.find((a) => a.id === appointmentId) : undefined;
+  if (appointmentId && (!visit || visit.patientId !== patientId)) {
+    return NextResponse.json({ error: 'Appointment mismatch.' }, { status: 400 });
   }
   if (encounterId) {
     const encounter = db.encounters.find((e) => e.id === encounterId);
@@ -139,6 +146,11 @@ export async function POST(request: Request) {
     lines: [{ description: `${modality}: ${test}`, qty: 1, unitPriceKes: priceKes }]
   });
 
+  let visitStage: string | null = null;
+  if (visit && stageIndex(stageOf(visit)) >= stageIndex(VisitStage.Consultation)) {
+    visitStage = (await moveVisit(visit.id, VisitStage.LabImaging)) ?? stageOf(visit);
+  }
+
   await notify({
     userId: patientId,
     title: 'Lab order placed — pay invoice to begin',
@@ -155,8 +167,16 @@ export async function POST(request: Request) {
     resourceType: 'lab_order',
     resourceId: order.id,
     purpose: 'Diagnostics ordering',
-    phiAccessed: true
+    phiAccessed: true,
+    metadata: visitStage ? { visitStage } : {}
   });
 
-  return NextResponse.json({ order, invoiceId: invoice?.id ?? null }, { status: 201 });
+  return NextResponse.json(
+    {
+      order: visitStage ? { ...order, visitStage } : order,
+      invoiceId: invoice?.id ?? null,
+      visitStage
+    },
+    { status: 201 }
+  );
 }

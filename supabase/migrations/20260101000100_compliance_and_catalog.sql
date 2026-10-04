@@ -372,7 +372,7 @@ GRANT EXECUTE ON FUNCTION public.purge_expired_patient_data(INTEGER) TO service_
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
-    PERFORM cron.schedule('afya-retention-purge', '17 3 * * *', $$SELECT public.purge_expired_patient_data(2190)$$);
+    PERFORM cron.schedule('afya-retention-purge', '17 3 * * *', 'SELECT public.purge_expired_patient_data(2190)');
   END IF;
 EXCEPTION WHEN OTHERS THEN
   RAISE NOTICE 'retention schedule not registered: %', SQLERRM;

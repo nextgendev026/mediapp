@@ -4,6 +4,8 @@ import { getDb, mutate } from '@/lib/server/store';
 import { recordAudit } from '@/lib/server/audit';
 import { notify } from '@/lib/server/notify';
 import { enumOf, isSameOriginMutation, str } from '@/lib/server/security';
+import { VisitStage } from '@/lib/workflow';
+import { moveVisit } from '@/lib/server/visits';
 
 export const runtime = 'nodejs';
 
@@ -44,6 +46,12 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   });
 
   const drugList = rx.items.map((i) => i.name).join(', ');
+  let visitStage: string | null = null;
+  if (status === 'dispensed' && rx.encounterId) {
+    const encounter = db.encounters.find((e) => e.id === rx.encounterId);
+    if (encounter?.appointmentId) visitStage = await moveVisit(encounter.appointmentId, VisitStage.Checkout, { system: true });
+  }
+
   await notify({
     userId: rx.patientId,
     title: `Prescription ${status}`,
@@ -52,7 +60,8 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   });
   await recordAudit({
     actorId: guard.caller.userId, actorRole: guard.caller.role, action: `prescription_${status}`,
-    resourceType: 'prescription', resourceId: params.id, purpose: 'Pharmacy dispensing', phiAccessed: true
+    resourceType: 'prescription', resourceId: params.id, purpose: 'Pharmacy dispensing', phiAccessed: true,
+    metadata: visitStage ? { visitStage } : {}
   });
-  return NextResponse.json({ ok: true, status });
+  return NextResponse.json({ ok: true, status, visitStage });
 }

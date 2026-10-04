@@ -23,8 +23,14 @@ interface VisitRow {
   phone: string;
   providerId: string;
   providerName: string;
-  assignedTo?: string | undefined;
-  assignedToName: string;
+  assignedProviderId?: string | undefined;
+  assignedProviderName: string;
+  nurseId?: string | undefined;
+  nurseName: string;
+  roomId?: string | undefined;
+  triageNotes?: string | undefined;
+  checkinAt?: string | undefined;
+  checkoutAt?: string | undefined;
   date: string;
   time: string;
   mode: string;
@@ -64,6 +70,7 @@ export function WorkflowBoard() {
       const params = new URLSearchParams();
       if (date) params.set('date', date);
       else params.set('scope', 'all');
+      params.set('closed', '1');
       const res = await fetch(`/api/visits?${params.toString()}`, { headers: { 'X-Afya-Client': 'web' } });
       if (!res.ok) throw new Error('Could not load the workflow board.');
       const data = (await res.json()) as { visits: VisitRow[] };
@@ -109,11 +116,11 @@ export function WorkflowBoard() {
   }, [rows]);
   const mobileRows = visible.filter((r) => r.stage === mobileStage);
 
-  async function patchVisit(id: string, payload: Record<string, string>, successMessage: string) {
+  async function patchVisit(id: string, payload: Record<string, string>, successMessage: string, endpoint: 'stage' | 'assign') {
     setNotice('');
     setError('');
     try {
-      const res = await fetch(`/api/visits/${id}`, {
+      const res = await fetch(`/api/visits/${id}/${endpoint}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'X-Afya-Client': 'web' },
         body: JSON.stringify(payload)
@@ -129,13 +136,21 @@ export function WorkflowBoard() {
 
   function assign(visitId: string, providerId: string, name: string) {
     if (!providerId) return;
-    void patchVisit(visitId, { assignedTo: providerId }, `Assigned to ${name}.`);
+    void patchVisit(visitId, { assignedProviderId: providerId }, `Assigned to ${name}.`, 'assign');
+  }
+
+  function assignNurse(visitId: string, providerId: string, name: string) {
+    void patchVisit(visitId, { nurseId: providerId }, providerId ? `${name} is triaging this visit.` : 'Triage nurse cleared.', 'assign');
+  }
+
+  function assignRoom(visitId: string, roomId: string) {
+    void patchVisit(visitId, { roomId }, roomId ? `Room ${roomId} assigned.` : 'Room released.', 'assign');
   }
 
   function advance(row: VisitRow) {
     const next = nextStage(row.stage);
     if (!next) return;
-    void patchVisit(row.id, { stage: next }, `${row.patientName} moved to ${STAGE_LABELS[next]}.`);
+    void patchVisit(row.id, { stage: next }, `${row.patientName} moved to ${STAGE_LABELS[next]}.`, 'stage');
   }
 
   return (
@@ -199,7 +214,7 @@ export function WorkflowBoard() {
           </p>
         ) : (
           mobileRows.map((row) => (
-            <VisitCard key={row.id} row={row} providers={providers} onAssign={assign} onAdvance={advance} />
+            <VisitCard key={row.id} row={row} providers={providers} onAssign={assign} onAssignNurse={assignNurse} onAssignRoom={assignRoom} onAdvance={advance} />
           ))
         )}
       </div>
@@ -223,7 +238,7 @@ export function WorkflowBoard() {
                   </p>
                 ) : (
                   stageRows.map((row) => (
-                    <VisitCard key={row.id} row={row} providers={providers} onAssign={assign} onAdvance={advance} />
+                    <VisitCard key={row.id} row={row} providers={providers} onAssign={assign} onAssignNurse={assignNurse} onAssignRoom={assignRoom} onAdvance={advance} />
                   ))
                 )}
               </div>
@@ -251,11 +266,15 @@ function VisitCard({
   row,
   providers,
   onAssign,
+  onAssignNurse,
+  onAssignRoom,
   onAdvance
 }: {
   row: VisitRow;
   providers: ProviderOption[];
   onAssign: (visitId: string, providerId: string, name: string) => void;
+  onAssignNurse: (visitId: string, providerId: string, name: string) => void;
+  onAssignRoom: (visitId: string, roomId: string) => void;
   onAdvance: (row: VisitRow) => void;
 }) {
   const canAdvance = nextStage(row.stage) !== null;
@@ -268,12 +287,19 @@ function VisitCard({
       <p className="mt-0.5 truncate text-xs text-[var(--color-gray-500)]">
         {row.phone} · {row.mode.replace('_', ' ')}
       </p>
-      <p className={`mt-1 text-xs font-bold ${row.assignedToName ? 'text-[var(--color-gray-700)]' : 'text-amber-600'}`}>
-        {row.assignedToName || 'Unassigned'}
+      <p className={`mt-1 text-xs font-bold ${row.assignedProviderName ? 'text-[var(--color-gray-700)]' : 'text-amber-600'}`}>
+        {row.assignedProviderName || 'Unassigned'}
       </p>
       <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--color-gray-600)]">{row.reason}</p>
+      {row.triageNotes && (
+        <p className="mt-2 line-clamp-2 rounded-lg bg-blue-50 p-2 text-[11px] leading-4 text-blue-800">
+          Triage: {row.triageNotes}
+        </p>
+      )}
       <div className="mt-2 flex flex-wrap gap-1.5">
         <Badge tone="neutral">{row.date.slice(5)}</Badge>
+        {row.roomId && <Badge tone="primary">{row.roomId}</Badge>}
+        {row.nurseName && <Badge tone="info">Nurse {row.nurseName.split(' ').slice(-1)[0]}</Badge>}
         {row.openLabs > 0 && <Badge tone="info">Labs {row.openLabs}</Badge>}
         {row.invoice &&
           (row.invoice.balance <= 0 || row.invoice.status === 'paid' ? (
@@ -285,7 +311,7 @@ function VisitCard({
       <div className="mt-3 space-y-2">
         <Select
           aria-label={`Assign clinician for ${row.patientName}`}
-          value={row.assignedTo ?? ''}
+          value={row.assignedProviderId ?? ''}
           onChange={(e) => onAssign(row.id, e.target.value, providers.find((p) => p.id === e.target.value)?.fullName ?? 'clinician')}
           className="min-h-9 px-2 py-1.5 text-xs"
         >
@@ -296,12 +322,38 @@ function VisitCard({
             </option>
           ))}
         </Select>
+        <Select
+          aria-label={`Assign triage nurse for ${row.patientName}`}
+          value={row.nurseId ?? ''}
+          onChange={(e) => onAssignNurse(row.id, e.target.value, providers.find((p) => p.id === e.target.value)?.fullName ?? 'nurse')}
+          className="min-h-9 px-2 py-1.5 text-xs"
+        >
+          <option value="">Assign triage nurse…</option>
+          {providers.map((provider) => (
+            <option key={provider.id} value={provider.id}>
+              {provider.fullName}
+            </option>
+          ))}
+        </Select>
+        <Input
+          aria-label={`Room for ${row.patientName}`}
+          placeholder="Room (e.g. Room 2)"
+          defaultValue={row.roomId ?? ''}
+          onBlur={(e) => {
+            const value = e.target.value.trim();
+            if (value !== (row.roomId ?? '')) onAssignRoom(row.id, value);
+          }}
+          className="min-h-9 px-2 py-1.5 text-xs"
+        />
         <Button type="button" size="sm" variant="outline" className="w-full" disabled={!canAdvance} onClick={() => onAdvance(row)}>
           Advance
           <ArrowRight className="h-3.5 w-3.5" />
         </Button>
       </div>
-      <p className="mt-2 text-[11px] font-semibold text-[var(--color-gray-400)]">Room opened by clinician</p>
+      <p className="mt-2 text-[11px] font-semibold text-[var(--color-gray-400)]">
+        {row.checkinAt ? `Checked in ${row.checkinAt.slice(11, 16)}` : 'Awaiting check-in'}
+        {row.checkoutAt ? ` · Closed ${row.checkoutAt.slice(11, 16)}` : ''}
+      </p>
     </article>
   );
 }
@@ -320,6 +372,7 @@ function IntakeModal({
   const [gender, setGender] = useState('');
   const [reason, setReason] = useState('');
   const [providerId, setProviderId] = useState('');
+  const [roomId, setRoomId] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -339,7 +392,7 @@ function IntakeModal({
       const res = await fetch('/api/visits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Afya-Client': 'web' },
-        body: JSON.stringify({ patientName: patientName.trim(), phone: phone.trim(), gender, reason: reason.trim(), providerId })
+        body: JSON.stringify({ patientName: patientName.trim(), phone: phone.trim(), gender, reason: reason.trim(), providerId, roomId: roomId.trim() })
       });
       const data = (await res.json()) as { error?: string; patient?: { fullName: string } };
       if (!res.ok) throw new Error(data.error || 'Intake failed.');
@@ -400,6 +453,10 @@ function IntakeModal({
                 </option>
               ))}
             </Select>
+          </div>
+          <div>
+            <label htmlFor="intake-room" className="mb-1.5 block text-xs font-bold text-[var(--color-gray-600)]">Room (optional)</label>
+            <Input id="intake-room" value={roomId} onChange={(e) => setRoomId(e.target.value)} placeholder="e.g. Room 2 or Triage 1" />
           </div>
           {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm font-medium text-red-700">{error}</p>}
           <div className="flex flex-wrap justify-end gap-2">

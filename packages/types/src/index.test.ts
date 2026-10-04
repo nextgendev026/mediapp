@@ -18,6 +18,11 @@ import {
   CONSENT_TYPES,
   AUDIT_ACTIONS,
   AUDIT_PURPOSES,
+  VISIT_STAGES,
+  isVisitStage,
+  isForwardVisitMove,
+  nextVisitStage,
+  canEnterVisitStage,
   KENYA_COUNTIES,
   KENYAN_PHONE_REGEX,
   isKenyanPhone,
@@ -137,6 +142,39 @@ describe('AUDIT_ACTIONS', () => {
 describe('AUDIT_PURPOSES', () => {
   it('contains expected purposes', () => {
     assert.deepEqual([...AUDIT_PURPOSES], ['treatment', 'payment', 'audit', 'admin']);
+  });
+});
+
+describe('VISIT_STAGES', () => {
+  it('covers the full clinic pathway in order', () => {
+    assert.deepEqual(
+      [...VISIT_STAGES],
+      ['front_desk', 'triage', 'consultation', 'lab_imaging', 'diagnosis', 'prescription', 'checkout', 'complete']
+    );
+  });
+
+  it('recognises stage values', () => {
+    assert.equal(isVisitStage('triage'), true);
+    assert.equal(isVisitStage('unknown'), false);
+  });
+
+  it('moves forward only', () => {
+    assert.equal(isForwardVisitMove('front_desk', 'triage'), true);
+    assert.equal(isForwardVisitMove('triage', 'front_desk'), false);
+    assert.equal(isForwardVisitMove('triage', 'triage'), false);
+  });
+
+  it('walks the pathway one stage at a time', () => {
+    assert.equal(nextVisitStage('front_desk'), 'triage');
+    assert.equal(nextVisitStage('checkout'), 'complete');
+    assert.equal(nextVisitStage('complete'), null);
+  });
+
+  it('gates stages by role', () => {
+    assert.equal(canEnterVisitStage('admin', 'front_desk'), true);
+    assert.equal(canEnterVisitStage('provider', 'front_desk'), false);
+    assert.equal(canEnterVisitStage('pharmacist', 'checkout'), true);
+    assert.equal(canEnterVisitStage('pharmacist', 'diagnosis'), false);
   });
 });
 

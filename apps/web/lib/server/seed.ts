@@ -63,9 +63,9 @@ export async function buildSeed(): Promise<Database> {
   ];
 
   const appointments: Database['appointments'] = [
-    { id: SEED_IDS.appointment1, patientId: SEED_IDS.patient, providerId: SEED_IDS.provider, date: new Date(now + 86_400_000).toISOString().slice(0, 10), time: '10:30', mode: 'video', status: 'booked', reason: 'Persistent cough and fever for 5 days', feeKes: 1200, createdAt: iso(2) },
-    { id: SEED_IDS.appointment2, patientId: SEED_IDS.patient2, providerId: SEED_IDS.provider, date: new Date(now - 6 * 86_400_000).toISOString().slice(0, 10), time: '14:30', mode: 'chat', status: 'completed', reason: 'Hypertension review', feeKes: 1500, createdAt: iso(9), invoiceId: SEED_IDS.invoice1 },
-    { id: ID(32), patientId: SEED_IDS.patient, providerId: ID(8), date: new Date(now - 21 * 86_400_000).toISOString().slice(0, 10), time: '09:00', mode: 'in_person', status: 'completed', reason: 'Malaria testing and treatment', feeKes: 1000, createdAt: iso(23), invoiceId: SEED_IDS.invoice3 }
+    { id: SEED_IDS.appointment1, patientId: SEED_IDS.patient, providerId: SEED_IDS.provider, date: new Date(now + 86_400_000).toISOString().slice(0, 10), time: '10:30', mode: 'video', status: 'booked', reason: 'Persistent cough and fever for 5 days', feeKes: 1200, createdAt: iso(2), stage: 'front_desk' },
+    { id: SEED_IDS.appointment2, patientId: SEED_IDS.patient2, providerId: SEED_IDS.provider, date: new Date(now - 6 * 86_400_000).toISOString().slice(0, 10), time: '14:30', mode: 'chat', status: 'completed', reason: 'Hypertension review', feeKes: 1500, createdAt: iso(9), invoiceId: SEED_IDS.invoice1, stage: 'complete', assignedProviderId: SEED_IDS.provider, checkinAt: iso(6), checkoutAt: iso(6) },
+    { id: ID(32), patientId: SEED_IDS.patient, providerId: ID(8), date: new Date(now - 21 * 86_400_000).toISOString().slice(0, 10), time: '09:00', mode: 'in_person', status: 'completed', reason: 'Malaria testing and treatment', feeKes: 1000, createdAt: iso(23), invoiceId: SEED_IDS.invoice3, stage: 'complete', assignedProviderId: ID(8), nurseId: ID(8), roomId: 'Ward B - B14', triageNotes: 'T 38.6C, BP 120/78, RRR. Malaria RDT positive. Started on AL before 24h.', checkinAt: iso(21), checkoutAt: iso(21) }
   ];
 
   const encounters: Database['encounters'] = [
@@ -156,6 +156,20 @@ export async function buildSeed(): Promise<Database> {
     { id: SEED_IDS.admission1, patientId: SEED_IDS.patient, ward: 'Ward B', bedNo: 'B-14', admittedAt: iso(1), dailyRateKes: 2500, status: 'active' }
   ];
 
+  const labOrders: Database['labOrders'] = [
+    {
+      id: 'LAB-2026-000001', appointmentId: ID(32), patientId: SEED_IDS.patient, orderedBy: ID(8),
+      modality: 'laboratory', test: 'Malaria RDT', clinicalQuestion: 'Confirm P. falciparum after 3 days of fever.',
+      priceKes: 500, status: 'resulted', result: 'P. falciparum positive, parasitaemia 1+',
+      interpretation: 'Abnormal', createdAt: iso(21), resultedAt: iso(21)
+    },
+    {
+      id: 'LAB-2026-000002', appointmentId: SEED_IDS.appointment1, patientId: SEED_IDS.patient, orderedBy: SEED_IDS.provider,
+      modality: 'laboratory', test: 'Full blood count', clinicalQuestion: 'Screen for anaemia given 5 days of fever and cough.',
+      priceKes: 1500, status: 'ordered', createdAt: iso(1)
+    }
+  ];
+
   const audit: Database['audit'] = [
     { id: ID(120), at: iso(0), actorId: SEED_IDS.admin, actorRole: 'admin', action: 'user_role_change', resourceType: 'user', resourceId: ID(8), purpose: 'Onboarding locum clinician', phiAccessed: false },
     { id: ID(121), at: iso(1), actorId: SEED_IDS.provider, actorRole: 'provider', action: 'phi_access', resourceType: 'encounter', resourceId: SEED_IDS.encounter1, purpose: 'Clinical review', phiAccessed: true },
@@ -186,7 +200,7 @@ export async function buildSeed(): Promise<Database> {
     version: 1,
     users, appointments, encounters, prescriptions, referrals, threads, messages,
     attachments: [], invoices, payments, admissions, audit, notifications, orders,
-    labOrders: [],
-    counters: { invoice: 3, receipt: 2, order: 184, appointment: 3, encounter: 2, prescription: 2, referral: 1 }
+    labOrders,
+    counters: { invoice: 3, receipt: 2, order: 184, appointment: 3, encounter: 2, prescription: 2, referral: 1, lab: 2 }
   };
 }

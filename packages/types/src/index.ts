@@ -22,6 +22,31 @@ export type ConsultationStatus = (typeof CONSULTATION_STATUSES)[number];
 export const CONSULTATION_TYPES = ['video', 'audio', 'chat'] as const;
 export type ConsultationType = (typeof CONSULTATION_TYPES)[number];
 
+/** Front desk -> triage/nurse -> clinician -> lab/imaging -> diagnosis -> prescription -> checkout. */
+export const VISIT_STAGES = [
+  'front_desk',
+  'triage',
+  'consultation',
+  'lab_imaging',
+  'diagnosis',
+  'prescription',
+  'checkout',
+  'complete'
+] as const;
+export type VisitStage = (typeof VISIT_STAGES)[number];
+
+export const VISIT_STATUSES = ['booked', 'completed', 'cancelled', 'no_show'] as const;
+export type VisitStatus = (typeof VISIT_STATUSES)[number];
+
+export const VISIT_ACTOR_ROLES = ['admin', 'provider', 'pharmacist'] as const;
+export type VisitActorRole = (typeof VISIT_ACTOR_ROLES)[number];
+
+export const LAB_MODALITIES = ['laboratory', 'imaging'] as const;
+export type LabModality = (typeof LAB_MODALITIES)[number];
+
+export const LAB_ORDER_STATUSES = ['ordered', 'in_progress', 'resulted'] as const;
+export type LabOrderStatus = (typeof LAB_ORDER_STATUSES)[number];
+
 export const PAYMENT_STATUSES = ['pending', 'paid', 'failed', 'refunded', 'partially_refunded'] as const;
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 
@@ -165,6 +190,51 @@ export interface SoapNotes {
   objective: string;
   assessment: string;
   plan: string;
+}
+
+export interface Visit {
+  id: EntityId;
+  appointment_id: EntityId;
+  patient_id: EntityId;
+  provider_id: EntityId | null;
+  stage: VisitStage;
+  status: VisitStatus;
+  assigned_provider_id: EntityId | null;
+  nurse_id: EntityId | null;
+  room_id: string | null;
+  triage_notes: string | null;
+  checkin_at: IsoDateTime | null;
+  checkout_at: IsoDateTime | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+export interface VisitStageChange {
+  visit_id: EntityId;
+  from_stage: VisitStage;
+  to_stage: VisitStage;
+  moved_by: EntityId;
+  moved_by_role: VisitActorRole;
+  triage_notes: string | null;
+  room_id: string | null;
+  occurred_at: IsoDateTime;
+}
+
+export interface LabOrder {
+  id: EntityId;
+  visit_id: EntityId | null;
+  encounter_id: EntityId | null;
+  patient_id: EntityId;
+  ordered_by: EntityId;
+  modality: LabModality;
+  test: string;
+  clinical_question: string | null;
+  price_kes: number;
+  status: LabOrderStatus;
+  result: string | null;
+  interpretation: string | null;
+  resulted_at: IsoDateTime | null;
+  created_at: IsoDateTime;
 }
 
 export interface Consultation {
@@ -433,6 +503,40 @@ export const KENYA_COUNTIES = [
 export type KenyaCounty = (typeof KENYA_COUNTIES)[number];
 
 export const KENYAN_PHONE_REGEX = /^(?:\+254|254|0)(7\d{8}|1\d{8})$/;
+
+export function visitStageIndex(stage: VisitStage): number {
+  return VISIT_STAGES.indexOf(stage);
+}
+
+export function isVisitStage(value: unknown): value is VisitStage {
+  return typeof value === 'string' && (VISIT_STAGES as readonly string[]).includes(value);
+}
+
+export function isForwardVisitMove(from: VisitStage, to: VisitStage): boolean {
+  return visitStageIndex(to) > visitStageIndex(from);
+}
+
+export function nextVisitStage(stage: VisitStage): VisitStage | null {
+  const index = visitStageIndex(stage);
+  if (index < 0 || index >= VISIT_STAGES.length - 1) return null;
+  return VISIT_STAGES[index + 1] ?? null;
+}
+
+/** Mirrors the server-side STAGE_ENTRY_ROLES gate so clients render the same affordances. */
+export const VISIT_STAGE_ENTRY_ROLES: Record<VisitStage, readonly VisitActorRole[]> = {
+  front_desk: ['admin'],
+  triage: ['provider', 'admin'],
+  consultation: ['provider', 'admin'],
+  lab_imaging: ['provider', 'admin'],
+  diagnosis: ['provider', 'admin'],
+  prescription: ['provider', 'admin'],
+  checkout: ['provider', 'pharmacist', 'admin'],
+  complete: ['admin', 'provider']
+};
+
+export function canEnterVisitStage(role: VisitActorRole, stage: VisitStage): boolean {
+  return VISIT_STAGE_ENTRY_ROLES[stage].includes(role);
+}
 
 export function isKenyanPhone(input: string): boolean {
   return KENYAN_PHONE_REGEX.test(input.trim());

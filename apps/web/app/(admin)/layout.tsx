@@ -1,10 +1,11 @@
 'use client';
 
-import { Activity, BarChart3, ClipboardCheck, Download, FileSearch, LayoutDashboard, Receipt, Settings2, ShieldCheck, UsersRound } from 'lucide-react';
+import { Activity, BarChart3, ClipboardCheck, Download, FileSearch, LayoutDashboard, Receipt, Settings2, ShieldCheck, Stethoscope, UsersRound } from 'lucide-react';
 import { AppShell, type ShellNavItem } from '@/components/shared/AppShell';
 
 const navItems: ShellNavItem[] = [
   { label: 'Overview', href: '/admin/dashboard', icon: LayoutDashboard, exact: true },
+  { label: 'Visit workflow', href: '/admin/workflow', icon: Stethoscope },
   { label: 'User management', href: '/admin/users', icon: UsersRound },
   { label: 'Accounting', href: '/admin/accounting', icon: Receipt },
   { label: 'Audit log', href: '/admin/audit-log', icon: FileSearch },

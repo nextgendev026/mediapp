@@ -8,37 +8,12 @@ import { isSameOriginMutation, str } from '@/lib/server/security';
 import { getSettings } from '@/lib/server/settings';
 import { hashPassword } from '@/lib/server/password';
 import { isValidKenyanPhone, normalizeKenyanPhone } from '@/lib/utils/validate-phone';
-import { isVisitStage, stageOf, VISIT_STAGES } from '@/lib/workflow';
+import { VisitStage, VISIT_STAGES, isVisitStage, isVisitStatus } from '@/lib/workflow';
+import { MAX_ROOM_ID, MAX_TRIAGE_NOTES, listVisitViews, stageSummary, validateStagePatch } from '@/lib/server/visits';
 
 export const runtime = 'nodejs';
 
 const DEFAULT_PROVIDER_ID = '00000000-0000-4000-8000-000000000002';
-
-interface VisitInvoiceView {
-  number: string;
-  status: string;
-  balance: number;
-}
-
-interface VisitView {
-  id: string;
-  patientId: string;
-  patientName: string;
-  phone: string;
-  providerId: string;
-  providerName: string;
-  assignedTo?: string | undefined;
-  assignedToName: string;
-  date: string;
-  time: string;
-  mode: string;
-  status: string;
-  reason: string;
-  feeKes: number;
-  stage: string;
-  openLabs: number;
-  invoice: VisitInvoiceView | null;
-}
 
 export async function GET(request: Request) {
   const guard = await requireRole(['admin', 'provider']);
@@ -47,45 +22,24 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const scope = url.searchParams.get('scope');
   const today = new Date().toISOString().slice(0, 10);
-  const dateFilter = url.searchParams.get('date') ?? (scope === 'today' || (!scope && guard.caller.role === 'provider') ? today : null);
-  const stageFilter = url.searchParams.get('stage');
-  const patientFilter = url.searchParams.get('patientId');
+  const dateParam = url.searchParams.get('date');
+  const dateFilter = dateParam ?? (scope === 'today' || (!scope && guard.caller.role === 'provider') ? today : null);
+  const stageParam = url.searchParams.get('stage');
+  if (stageParam && !isVisitStage(stageParam)) {
+    return NextResponse.json({ error: 'Invalid stage filter.' }, { status: 400 });
+  }
+  const statusParam = url.searchParams.get('status');
+  if (statusParam && !isVisitStatus(statusParam)) {
+    return NextResponse.json({ error: 'Invalid status filter.' }, { status: 400 });
+  }
 
-  let rows = db.appointments.slice();
-  if (dateFilter) rows = rows.filter((a) => a.date === dateFilter);
-  if (patientFilter) rows = rows.filter((a) => a.patientId === patientFilter);
-  if (stageFilter && isVisitStage(stageFilter)) rows = rows.filter((a) => stageOf(a) === stageFilter);
-  rows.sort((a, b) => (a.date + a.time < b.date + b.time ? -1 : 1));
-
-  const nameOf = (id: string): string => db.users.find((u) => u.id === id)?.fullName ?? 'Unknown';
-
-  const visits: VisitView[] = rows.map((a) => {
-    const invoice = a.invoiceId ? db.invoices.find((i) => i.id === a.invoiceId) : undefined;
-    const openLabs = db.labOrders.filter(
-      (o) =>
-        o.status !== 'resulted' &&
-        (o.appointmentId === a.id || (!o.appointmentId && o.patientId === a.patientId))
-    ).length;
-    const view: VisitView = {
-      id: a.id,
-      patientId: a.patientId,
-      patientName: nameOf(a.patientId),
-      phone: db.users.find((u) => u.id === a.patientId)?.phone ?? '',
-      providerId: a.providerId,
-      providerName: nameOf(a.providerId),
-      assignedTo: a.assignedTo,
-      assignedToName: a.assignedTo ? nameOf(a.assignedTo) : '',
-      date: a.date,
-      time: a.time,
-      mode: a.mode,
-      status: a.status,
-      reason: a.reason,
-      feeKes: a.feeKes,
-      stage: stageOf(a),
-      openLabs,
-      invoice: invoice ? { number: invoice.number, status: invoice.status, balance: invoice.totalKes - invoice.paidKes } : null
-    };
-    return view;
+  const visits = await listVisitViews({
+    date: dateFilter,
+    stage: isVisitStage(stageParam) ? stageParam : null,
+    status: isVisitStatus(statusParam) ? statusParam : null,
+    patientId: url.searchParams.get('patientId'),
+    providerId: guard.caller.role === 'provider' ? guard.caller.userId : url.searchParams.get('providerId'),
+    includeClosed: url.searchParams.get('closed') === 'true'
   });
 
   const labOrderSummary = {
@@ -95,7 +49,12 @@ export async function GET(request: Request) {
     resulted: db.labOrders.filter((o) => o.status === 'resulted').length
   };
 
-  return NextResponse.json({ visits, stages: VISIT_STAGES, labOrderSummary });
+  return NextResponse.json({
+    visits,
+    stages: VISIT_STAGES,
+    stageCounts: stageSummary(db),
+    labOrderSummary
+  });
 }
 
 export async function POST(request: Request) {
@@ -115,6 +74,8 @@ export async function POST(request: Request) {
   const reason = str(body.reason, 400).trim();
   const gender = str(body.gender ?? '', 20).trim();
   const county = str(body.county ?? '', 60).trim();
+  const triageNotes = str(body.triageNotes ?? '', MAX_TRIAGE_NOTES).trim();
+  const roomId = str(body.roomId ?? '', MAX_ROOM_ID).trim();
   const existingPatientId = str(body.existingPatientId, 64);
   const requestedProviderId = str(body.providerId, 64);
 
@@ -139,7 +100,6 @@ export async function POST(request: Request) {
   }
 
   if (!patient) {
-    const nowIso = new Date().toISOString();
     const created: UserRecord = {
       id: newId(),
       email: `walkin.${randomBytes(5).toString('hex')}@afyacommerce.test`,
@@ -149,7 +109,7 @@ export async function POST(request: Request) {
       phone,
       status: 'active',
       mfa: false,
-      createdAt: nowIso,
+      createdAt: new Date().toISOString(),
       county: county || undefined,
       gender: gender || undefined
     };
@@ -183,8 +143,19 @@ export async function POST(request: Request) {
     reason,
     feeKes: settings.consultationFeeInPerson,
     createdAt: now.toISOString(),
-    stage: 'front_desk'
+    stage: VisitStage.FrontDesk,
+    checkinAt: now.toISOString(),
+    assignedProviderId: provider.id,
+    triageNotes: triageNotes || undefined,
+    roomId: roomId || undefined
   };
+
+  const refusal = validateStagePatch(db, appointment, { userId: guard.caller.userId, role: 'admin' }, {
+    triageNotes: appointment.triageNotes,
+    roomId: appointment.roomId,
+    assignedProviderId: appointment.assignedProviderId
+  });
+  if (refusal) return NextResponse.json({ error: refusal.error }, { status: refusal.status });
 
   await mutate((db2) => {
     db2.appointments.push(appointment);
@@ -204,11 +175,13 @@ export async function POST(request: Request) {
     resourceType: 'appointment',
     resourceId: appointment.id,
     purpose: 'Front desk intake',
-    phiAccessed: true
+    phiAccessed: true,
+    metadata: { stage: VisitStage.FrontDesk, roomId: appointment.roomId ?? 'unassigned' }
   });
 
   return NextResponse.json(
     {
+      visitId: appointment.id,
       appointment,
       patient: { id: patient.id, fullName: patient.fullName, phone: patient.phone, role: patient.role }
     },

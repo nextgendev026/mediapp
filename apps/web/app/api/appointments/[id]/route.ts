@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { requireRole } from '@/lib/server/guard';
-import { getDb, mutate, type Appointment } from '@/lib/server/store';
+import { getDb, mutate } from '@/lib/server/store';
 import { recordAudit } from '@/lib/server/audit';
 import { notify } from '@/lib/server/notify';
 import { enumOf, isSameOriginMutation } from '@/lib/server/security';
+import { VisitStage, stageOf } from '@/lib/workflow';
+import { moveVisit } from '@/lib/server/visits';
 
 export const runtime = 'nodejs';
 
@@ -41,6 +43,11 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     if (row) row.status = status;
   });
 
+  let stage = stageOf(appointment);
+  if (status === 'completed' && stageOf(appointment) === VisitStage.Checkout) {
+    stage = (await moveVisit(params.id, VisitStage.Complete)) ?? stageOf(appointment);
+  }
+
   const counterpart = isProvider ? appointment.patientId : appointment.providerId;
   await notify({
     userId: counterpart,
@@ -51,8 +58,9 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   });
   await recordAudit({
     actorId: guard.caller.userId, actorRole: guard.caller.role, action: 'appointment_status',
-    resourceType: 'appointment', resourceId: params.id, purpose: 'Care coordination', phiAccessed: true
+    resourceType: 'appointment', resourceId: params.id, purpose: 'Care coordination', phiAccessed: true,
+    metadata: { status, stage }
   });
 
-  return NextResponse.json({ ok: true, status });
+  return NextResponse.json({ ok: true, status, stage });
 }

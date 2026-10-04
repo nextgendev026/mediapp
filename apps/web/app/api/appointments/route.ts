@@ -82,7 +82,8 @@ export async function POST(request: Request) {
     reason,
     feeKes,
     createdAt: new Date().toISOString(),
-    stage: 'front_desk'
+    stage: 'front_desk',
+    assignedProviderId: providerId
   };
 
   const invoice = await createInvoice({

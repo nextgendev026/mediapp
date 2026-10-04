@@ -163,10 +163,11 @@ async function authorize(
 ): Promise<boolean> {
   const { data: profile, error } = await admin
     .from("profiles")
-    .select("role,pharmacy_id")
+    .select("role,pharmacy_id,is_active")
     .eq("id", userId)
     .single();
   if (error || !profile) return false;
+  if (profile.is_active !== true) return false;
   if (profile.role === "admin") return true;
   if (profile.role === "patient") return prescription.patients?.profile_id === userId;
   if (profile.role === "provider") return prescription.providers?.profile_id === userId;

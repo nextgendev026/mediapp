@@ -52,7 +52,7 @@ export default async function ProviderDashboard() {
   const prescriptionsMine = db.prescriptions.filter((p) => p.providerId === callerId);
   const pendingRx = prescriptionsMine.filter((p) => p.status === 'pending_approval').length;
   const queueActive = todays.filter((a) => {
-    if (a.assignedTo !== callerId) return false;
+    if (a.assignedProviderId !== callerId) return false;
     const stage = stageOf(a);
     return stage === 'triage' || stage === 'consultation';
   }).length;

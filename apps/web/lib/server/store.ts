@@ -1,10 +1,25 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { VisitStage } from '../workflow';
+import type { VisitStage, VisitStatus } from '../workflow';
 
-export type { VisitStage } from '../workflow';
-export { stageOf, nextStage, stageIndex, isVisitStage, VISIT_STAGES, STAGE_LABELS } from '../workflow';
+export type { VisitStage, VisitStatus } from '../workflow';
+export {
+  VISIT_STAGES,
+  VISIT_STATUSES,
+  STAGE_LABELS,
+  canEnterStage,
+  isCheckoutStage,
+  isForwardMove,
+  isLiveVisit,
+  isTerminalStage,
+  isVisitStage,
+  isVisitStatus,
+  nextStage,
+  stageAtLeast,
+  stageIndex,
+  stageOf
+} from '../workflow';
 
 export type UserRole = 'patient' | 'provider' | 'pharmacist' | 'admin' | 'rider';
 
@@ -34,14 +49,22 @@ export interface Appointment {
   date: string;
   time: string;
   mode: 'video' | 'chat' | 'in_person';
-  status: 'booked' | 'completed' | 'cancelled' | 'no_show';
+  status: VisitStatus;
   reason: string;
   feeKes: number;
   createdAt: string;
   invoiceId?: string | undefined;
   stage?: VisitStage | undefined;
-  assignedTo?: string | undefined;
+  assignedProviderId?: string | undefined;
+  nurseId?: string | undefined;
+  triageNotes?: string | undefined;
+  checkinAt?: string | undefined;
+  checkoutAt?: string | undefined;
+  roomId?: string | undefined;
 }
+
+/** A visit is the operational face of an appointment: it carries the clinic pathway state. */
+export type Visit = Appointment;
 
 export interface SoapNote { subjective: string; objective: string; assessment: string; plan: string; }
 
@@ -290,6 +313,16 @@ function scheduleWrite(db: Database): void {
   });
 }
 
+function normalizeLegacy(db: Database): void {
+  for (const appt of db.appointments) {
+    const legacy = (appt as { assignedTo?: string }).assignedTo;
+    if (!appt.assignedProviderId && typeof legacy === 'string' && legacy) {
+      appt.assignedProviderId = legacy;
+    }
+    delete (appt as { assignedTo?: string }).assignedTo;
+  }
+}
+
 export async function getDb(): Promise<Database> {
   if (cache) return cache;
   let parsed: Database | null = null;
@@ -300,6 +333,7 @@ export async function getDb(): Promise<Database> {
     parsed = null;
   }
   const db = parsed && parsed.version === 1 ? { ...emptyDb(), ...parsed } : emptyDb();
+  normalizeLegacy(db);
   cache = db;
   if (!parsed) {
     const { buildSeed } = await import('./seed');

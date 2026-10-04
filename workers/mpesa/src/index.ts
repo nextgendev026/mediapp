@@ -190,10 +190,11 @@ async function orderForRequest(env: Env, orderId: string, user: string): Promise
   const result = await rest(env, `orders?id=eq.${encodeURIComponent(orderId)}&select=id,order_number,patient_id,pharmacy_id,prescription_id,total_kes,payment_status,mpesa_checkout_request_id`);
   const order = Array.isArray(result) ? orderById(result[0]) : null;
   if (!order) throw new HttpError(404, "order not found");
-  const profileResult = await rest(env, `profiles?id=eq.${encodeURIComponent(user)}&select=role,pharmacy_id`);
+  const profileResult = await rest(env, `profiles?id=eq.${encodeURIComponent(user)}&select=role,pharmacy_id,is_active`);
   const profile = Array.isArray(profileResult) ? profileResult[0] as Record<string, unknown> | undefined : undefined;
   const role = typeof profile?.role === "string" ? profile.role : "";
-  if (role === "admin" || role === "pharmacist" && order.pharmacy_id === profile?.pharmacy_id) return order;
+  if (profile?.is_active !== true) throw new HttpError(403, "account is not active");
+  if (role === "admin" || (role === "pharmacist" && order.pharmacy_id === profile?.pharmacy_id)) return order;
   if (role === "provider" && order.prescription_id) {
     const prescription = await rest(env, `prescriptions?id=eq.${encodeURIComponent(order.prescription_id)}&select=provider_id,providers(profile_id)`);
     const provider = Array.isArray(prescription) ? prescription[0] as Record<string, unknown> | undefined : undefined;

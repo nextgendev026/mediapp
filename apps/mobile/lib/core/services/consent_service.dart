@@ -56,6 +56,16 @@ class ConsentService {
       throw const ConsentException('Treatment consent cannot be withdrawn while an order or consultation is in progress. Contact support.');
     }
     final now = DateTime.now().toUtc().toIso8601String();
+
+    if (!granted) {
+      final revoke = await _client.patch(
+        Uri.parse('$_base/rest/v1/consent_records?consent_type=eq.$type&granted=eq.true&revoked_at=is.null&profile_id=eq.${Uri.encodeComponent(session.userId)}'),
+        headers: _headers(session, prefer: 'return=minimal'),
+        body: jsonEncode({'revoked_at': now}),
+      );
+      if (revoke.statusCode >= 300) throw ConsentException(_reason(revoke));
+    }
+
     final payload = granted
         ? {
             'profile_id': session.userId,
@@ -68,6 +78,7 @@ class ConsentService {
             'profile_id': session.userId,
             'consent_type': type,
             'granted': false,
+            'granted_at': now,
             'revoked_at': now,
           };
 

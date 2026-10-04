@@ -97,13 +97,16 @@ async function authenticatedUser(request: Request, env: Env): Promise<{ id: stri
   if (!response.ok) return null;
   const user = await response.json() as { id?: unknown };
   if (typeof user.id !== "string" || !UUID_PATTERN.test(user.id)) return null;
-  const profilesResponse = await fetch(`${base.toString().replace(/\/$/, "")}/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=role`, {
+  const profilesResponse = await fetch(`${base.toString().replace(/\/$/, "")}/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=role,is_active`, {
     headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, Accept: "application/json" },
     signal: AbortSignal.timeout(8_000),
   });
-  if (!profilesResponse.ok) return { id: user.id, role: "patient" };
+  if (!profilesResponse.ok) return null;
   const profiles = await profilesResponse.json() as unknown;
-  const role = Array.isArray(profiles) && profiles[0] && typeof profiles[0] === "object" ? String((profiles[0] as JsonRecord).role ?? "patient") : "patient";
+  const profile = Array.isArray(profiles) && profiles[0] && typeof profiles[0] === "object" ? (profiles[0] as JsonRecord) : null;
+  if (!profile || profile.is_active !== true) return null;
+  const role = String(profile.role ?? "");
+  if (role !== "patient" && role !== "provider" && role !== "pharmacist" && role !== "admin" && role !== "rider") return null;
   return { id: user.id, role };
 }
 

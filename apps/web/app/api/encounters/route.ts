@@ -5,6 +5,8 @@ import { recordAudit } from '@/lib/server/audit';
 import { createInvoice } from '@/lib/server/billing';
 import { notify } from '@/lib/server/notify';
 import { enumOf, isSameOriginMutation, str } from '@/lib/server/security';
+import { VisitStage } from '@/lib/workflow';
+import { moveVisit } from '@/lib/server/visits';
 
 export const runtime = 'nodejs';
 
@@ -178,13 +180,11 @@ export async function POST(request: Request) {
   }
 
   if (appointmentId) {
-    await mutate((db2) => {
-      const a = db2.appointments.find((x) => x.id === appointmentId);
-      if (a) {
-        a.status = 'completed';
-        a.stage = outcome === 'prescription' ? 'prescription' : 'checkout';
-      }
-    });
+    await moveVisit(
+      appointmentId,
+      outcome === 'prescription' && items ? VisitStage.Prescription : VisitStage.Diagnosis,
+      { system: true }
+    );
   }
 
   const invoice = await createInvoice({

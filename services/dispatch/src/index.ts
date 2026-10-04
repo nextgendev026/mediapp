@@ -418,6 +418,14 @@ async function updateAvailability(env: Env, body: JsonRecord, actor: Principal):
   const lng = body.lng === undefined || body.lng === null ? null : Number(body.lng);
   if (lat !== null && (!Number.isFinite(lat) || lat < -90 || lat > 90)) throw new HttpError(400, "invalid latitude");
   if (lng !== null && (!Number.isFinite(lng) || lng < -180 || lng > 180)) throw new HttpError(400, "invalid longitude");
+  if (available) {
+    const current = await rest(env, `riders?profile_id=eq.${encodeURIComponent(actor.userId)}&select=id,county,transport_licence_expiry&limit=1`);
+    const rider = orderFrom(current);
+    if (!rider) throw new HttpError(404, "rider record not found");
+    if (typeof rider.transport_licence_expiry !== "string" || rider.transport_licence_expiry < new Date().toISOString().slice(0, 10)) {
+      throw new HttpError(409, "transport licence has expired");
+    }
+  }
   const data = await rest(env, `riders?profile_id=eq.${encodeURIComponent(actor.userId)}&select=id,is_available,county,transport_licence_expiry`, {
     headers: { Prefer: "return=representation" },
     method: "PATCH",
@@ -430,9 +438,6 @@ async function updateAvailability(env: Env, body: JsonRecord, actor: Principal):
   });
   const rider = orderFrom(data);
   if (!rider) throw new HttpError(404, "rider record not found");
-  if (available && typeof rider.transport_licence_expiry === "string" && rider.transport_licence_expiry < new Date().toISOString().slice(0, 10)) {
-    throw new HttpError(409, "transport licence has expired");
-  }
   return { is_available: available, county: rider.county ?? null, last_ping_at: new Date().toISOString() };
 }
 

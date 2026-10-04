@@ -2,7 +2,7 @@
 
 import { useId, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, FlaskConical, Plus, Stethoscope, Video } from 'lucide-react';
+import { ArrowRight, ClipboardList, FlaskConical, Plus, Stethoscope, Video } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -20,7 +20,11 @@ export interface QueueVisit {
   time: string;
   mode: string;
   status: string;
-  assignedTo?: string | undefined;
+  assignedProviderId?: string | undefined;
+  nurseId?: string | undefined;
+  roomId?: string | undefined;
+  triageNotes?: string | undefined;
+  checkinAt?: string | undefined;
   mine: boolean;
   stage: VisitStage;
   invoice: { number: string; status: string; balance: number } | null;
@@ -65,25 +69,43 @@ export function PatientQueue({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [labFormFor, setLabFormFor] = useState<string | null>(null);
+  const [triageNotes, setTriageNotes] = useState<Record<string, string>>({});
+
+  function notesFor(visit: QueueVisit): string {
+    return triageNotes[visit.id] ?? visit.triageNotes ?? '';
+  }
+
+  function setNotes(visitId: string, value: string) {
+    setTriageNotes((prev) => ({ ...prev, [visitId]: value }));
+  }
 
   function feedback(message: string) {
     setError('');
     setNotice(message);
   }
 
-  async function patchVisit(id: string, payload: Record<string, string>, success: string): Promise<boolean> {
+  async function patchVisit(
+    id: string,
+    payload: Record<string, string>,
+    success: string,
+    endpoint: 'stage' | 'assign' = 'stage'
+  ): Promise<boolean> {
     setError('');
     setNotice('');
     try {
-      const res = await fetch(`/api/visits/${id}`, {
+      const res = await fetch(`/api/visits/${id}/${endpoint}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'X-Afya-Client': 'web' },
         body: JSON.stringify(payload)
       });
       const data = (await res.json()) as { error?: string; stage?: VisitStage };
       if (!res.ok) throw new Error(data.error || 'Update failed.');
-      const nextValue = data.stage;
-      setVisits((prev) => prev.map((v) => (v.id === id ? { ...v, stage: nextValue ?? v.stage, mine: payload.assignedTo ? true : v.mine } : v)));
+      const claimed = endpoint === 'assign' && Boolean(payload.assignedProviderId);
+      setVisits((prev) =>
+        prev.map((v) =>
+          v.id === id ? { ...v, stage: data.stage ?? v.stage, mine: claimed ? true : v.mine, triageNotes: payload.triageNotes ?? v.triageNotes } : v
+        )
+      );
       feedback(success);
       return true;
     } catch (err) {
@@ -101,8 +123,9 @@ export function PatientQueue({
         headers: { 'Content-Type': 'application/json', 'X-Afya-Client': 'web' },
         body: JSON.stringify(payload)
       });
-      const data = (await res.json()) as { error?: string };
+      const data = (await res.json()) as { error?: string; visit?: { stage?: VisitStage } };
       if (!res.ok) throw new Error(data.error || 'Update failed.');
+      const order = labs.find((o) => o.id === id);
       setLabs((prev) =>
         prev.map((o) =>
           o.id === id
@@ -115,6 +138,11 @@ export function PatientQueue({
             : o
         )
       );
+      if (data.visit?.stage && order?.appointmentId) {
+        const stage = data.visit.stage;
+        const visitId = order.appointmentId;
+        setVisits((prev) => prev.map((v) => (v.id === visitId ? { ...v, stage } : v)));
+      }
       feedback(success);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Update failed.');
@@ -153,21 +181,28 @@ export function PatientQueue({
     return labs.filter((o) => o.appointmentId === visit.id || (!o.appointmentId && o.patientId === visit.patientId));
   }
 
-  function startTriage(visit: QueueVisit) {
+  function startTriage(visit: QueueVisit, notes: string, nurseId: string) {
     void patchVisit(
       visit.id,
-      visit.mine ? { stage: 'triage' } : { stage: 'triage', assignedTo: meId },
+      { stage: 'triage', triageNotes: notes, ...(nurseId ? { nurseId } : {}) },
       `Triage started for ${visit.patientName}.`
     );
   }
 
-  async function beginConsultation(visit: QueueVisit) {
-    const ok = await patchVisit(
-      visit.id,
-      visit.mine ? { stage: 'consultation' } : { stage: 'consultation', assignedTo: meId },
-      `Consultation started for ${visit.patientName}.`
-    );
+  async function beginConsultation(visit: QueueVisit, notes: string) {
+    const payload: Record<string, string> = visit.mine
+      ? { stage: 'consultation', triageNotes: notes }
+      : { stage: 'consultation', triageNotes: notes, assignedProviderId: meId };
+    const ok = await patchVisit(visit.id, payload, `Consultation started for ${visit.patientName}.`);
     if (ok) router.push(`/provider/consultations/${visit.id}`);
+  }
+
+  function claim(visit: QueueVisit) {
+    void patchVisit(visit.id, { assignedProviderId: meId }, `${visit.patientName} is now assigned to you.`, 'assign');
+  }
+
+  function setRoom(visit: QueueVisit, roomId: string) {
+    void patchVisit(visit.id, { roomId }, roomId ? `Room ${roomId} assigned.` : 'Room released.', 'assign');
   }
 
   function advance(visit: QueueVisit) {
@@ -214,6 +249,7 @@ export function PatientQueue({
             const openLabs = visitLabs.filter((o) => o.status !== 'resulted').length;
             const next = nextStage(visit.stage);
             const unpaid = Boolean(visit.invoice && visit.invoice.balance > 0 && visit.invoice.status !== 'paid');
+            const triageNotes = notesFor(visit);
             return (
               <Card key={visit.id} className="p-0">
                 <div className="p-4 sm:p-5">
@@ -237,7 +273,14 @@ export function PatientQueue({
                       <p className="mt-1 text-sm text-[var(--color-gray-600)]">{visit.reason}</p>
                       <p className="mt-1 text-xs font-semibold text-[var(--color-gray-500)]">
                         {visit.phone} · {visit.time} · {visit.mode.replace('_', ' ')}
+                        {visit.roomId ? ` · ${visit.roomId}` : ''}
+                        {visit.checkinAt ? ` · in ${visit.checkinAt.slice(11, 16)}` : ''}
                       </p>
+                      {visit.triageNotes && (
+                        <p className="mt-2 rounded-lg bg-blue-50 p-2 text-xs leading-5 text-blue-800">
+                          Triage: {visit.triageNotes}
+                        </p>
+                      )}
                       {visit.invoice && (
                         <div className="mt-2">
                           {unpaid ? (
@@ -255,18 +298,53 @@ export function PatientQueue({
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-2">
+                    {!visit.mine && (
+                      <Button type="button" size="sm" variant="outline" onClick={() => claim(visit)}>
+                        <ClipboardList className="h-3.5 w-3.5" />
+                        Take this visit
+                      </Button>
+                    )}
                     {visit.stage === 'front_desk' && (
-                      <Button type="button" size="sm" onClick={() => startTriage(visit)}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={triageNotes.trim().length < 3}
+                        title={triageNotes.trim().length < 3 ? 'Record triage notes first' : 'Start triage'}
+                        onClick={() => startTriage(visit, triageNotes.trim(), visit.nurseId ?? meId)}
+                      >
                         <Stethoscope className="h-3.5 w-3.5" />
                         Start triage
                       </Button>
                     )}
                     {visit.stage === 'triage' && (
-                      <Button type="button" size="sm" onClick={() => void beginConsultation(visit)}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={triageNotes.trim().length < 3}
+                        title={triageNotes.trim().length < 3 ? 'Record triage notes first' : 'Begin consultation'}
+                        onClick={() => void beginConsultation(visit, triageNotes.trim())}
+                      >
                         <Video className="h-3.5 w-3.5" />
                         Begin consultation
                       </Button>
                     )}
+                    <Input
+                      aria-label={`Triage notes for ${visit.patientName}`}
+                      value={triageNotes}
+                      onChange={(e) => setNotes(visit.id, e.target.value)}
+                      placeholder="Triage notes — vitals, history, red flags"
+                      className="min-w-[220px] flex-1 text-xs"
+                    />
+                    <Input
+                      aria-label={`Room for ${visit.patientName}`}
+                      defaultValue={visit.roomId ?? ''}
+                      onBlur={(e) => {
+                        const value = e.target.value.trim();
+                        if (value !== (visit.roomId ?? '')) setRoom(visit, value);
+                      }}
+                      placeholder="Room"
+                      className="min-w-[120px] text-xs"
+                    />
                     {stageIndex(visit.stage) >= stageIndex('consultation') && visit.stage !== 'complete' && (
                       <Button type="button" size="sm" variant="outline" onClick={() => router.push(`/provider/consultations/${visit.id}`)}>
                         <Video className="h-3.5 w-3.5" />

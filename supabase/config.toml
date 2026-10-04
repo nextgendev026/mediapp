@@ -1,0 +1,13 @@
+project_id = "afyacommerce"
+
+[functions.audit-logger]
+verify_jwt = true
+
+[functions.dispatch-boda]
+verify_jwt = true
+
+[functions.transform-prescription]
+verify_jwt = true
+
+[functions.sha-claims]
+verify_jwt = true
