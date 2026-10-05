@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { redirectWithCookies, updateSession } from '@/lib/supabase/middleware';
 import { verifySession } from '@/lib/auth/session';
+import { guardRequest } from '@/lib/security/sentinel';
 import type { UserRole } from '@/lib/data';
 
 const roleRoutes: Record<UserRole, string> = {
@@ -59,6 +60,9 @@ function supabaseUsable(): boolean {
 }
 
 export async function middleware(request: NextRequest) {
+  const guard = await guardRequest(request, request.nextUrl.pathname);
+  if (!guard.allowed) return guard.response;
+
   if (!supabaseUsable()) {
     if (process.env.NODE_ENV === 'production' && !demoAuthEnabled()) {
       return new NextResponse('Authentication is not configured for this environment.', { status: 503, headers: { 'Retry-After': '60' } });

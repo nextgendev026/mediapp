@@ -1,3 +1,5 @@
+import { currentSecret } from '../security/key-rotation';
+
 const enc = new TextEncoder();
 
 export interface SessionPayload {
@@ -9,21 +11,12 @@ export interface SessionPayload {
 
 const SESSION_COOKIE = 'afya_session';
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
-const DEV_SECRET = 'afyacommerce-dev-only-secret-do-not-use-in-production';
-
-function secret(): string {
-  const value = process.env.AUTH_SESSION_SECRET ?? '';
-  if (value.length >= 16) return value;
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('AUTH_SESSION_SECRET must be set in production');
-  }
-  return DEV_SECRET;
-}
 
 async function hmac(value: string): Promise<string> {
+  const secret = await currentSecret();
   const key = await crypto.subtle.importKey(
     'raw',
-    enc.encode(secret()),
+    enc.encode(secret),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign']

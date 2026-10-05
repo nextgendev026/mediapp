@@ -4,6 +4,7 @@ import { verifyPassword } from '@/lib/server/password';
 import { signSession } from '@/lib/auth/session';
 import { clientIp, isSameOriginMutation, rateLimit, str } from '@/lib/server/security';
 import { recordAudit } from '@/lib/server/audit';
+import { handleFailedLogin } from '@/lib/security/auto-mend';
 
 export const runtime = 'nodejs';
 
@@ -45,6 +46,7 @@ export async function POST(request: Request) {
       actorId: user?.id ?? 'unknown', actorRole: 'anonymous', action: 'auth_login_failed',
       resourceType: 'session', purpose: 'Sign in', phiAccessed: false, ip
     });
+    await handleFailedLogin(ip, user?.id);
     return NextResponse.json({ error: 'Incorrect email or password.' }, { status: 401 });
   }
   if (user.status !== 'active') {

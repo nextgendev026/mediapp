@@ -10,6 +10,7 @@ const navItems: ShellNavItem[] = [
   { label: 'Accounting', href: '/admin/accounting', icon: Receipt },
   { label: 'Audit log', href: '/admin/audit-log', icon: FileSearch },
   { label: 'Monitoring', href: '/admin/monitoring', icon: Activity },
+  { label: 'Security', href: '/admin/security', icon: ShieldCheck },
   { label: 'Data export', href: '/admin/export', icon: Download },
   { label: 'Compliance', href: '/admin/compliance', icon: ClipboardCheck },
   { label: 'Analytics', href: '/admin/analytics', icon: BarChart3 },
