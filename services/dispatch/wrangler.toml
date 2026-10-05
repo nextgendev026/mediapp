@@ -7,7 +7,7 @@ ALLOWED_ORIGIN = "https://afyacommerce.co.ke"
 
 [[kv_namespaces]]
 binding = "DISPATCH_EVENTS"
-id = "REPLACE_WITH_DISPATCH_KV_ID"
+id = "90f0bff82d244a6cba6f8822dfc74f1b"
 
 [[queues.producers]]
 binding = "SMS_QUEUE"

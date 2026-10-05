@@ -1,0 +1,10 @@
+name = "afyacommerce-web"
+compatibility_date = "2026-09-25"
+pages_build_output_dir = "dist"
+
+[vars]
+AFYA_CLOUDFLARE_PAGES = "1"
+NODE_VERSION = "20"
+
+[build]
+command = "pnpm build:pages"

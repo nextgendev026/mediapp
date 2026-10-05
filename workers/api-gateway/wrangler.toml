@@ -27,4 +27,4 @@ service = "afyacommerce-dispatch"
 
 [[kv_namespaces]]
 binding = "RATE_LIMIT_KV"
-id = "REPLACE_WITH_GATEWAY_KV_ID"
+id = "5242adb54f434837b5cb6d1ad52f8bac"

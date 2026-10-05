@@ -10,4 +10,4 @@ binding = "AI"
 
 [[kv_namespaces]]
 binding = "AI_RESPONSE_CACHE"
-id = "REPLACE_WITH_AI_CACHE_KV_ID"
+id = "c06b202a920b4dd5bebf2cdd45ba2ef3"

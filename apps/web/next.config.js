@@ -9,6 +9,11 @@ const securityHeaders = [
   { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: data:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" }
 ];
 
+const isCloudflarePages =
+  process.env.CLOUDFLARE === '1' ||
+  process.env.AFYA_CLOUDFLARE_PAGES === '1' ||
+  process.env.NEXT_ON_PAGES === '1';
+
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
@@ -22,6 +27,7 @@ const nextConfig = {
     ];
   },
   images: {
+    unoptimized: isCloudflarePages,
     remotePatterns: [
       { protocol: 'https', hostname: '**.supabase.co' },
       { protocol: 'https', hostname: '**.afyacommerce.co.ke' }

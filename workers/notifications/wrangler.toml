@@ -14,4 +14,4 @@ queue = "afyacommerce-sms-jobs"
 
 [[kv_namespaces]]
 binding = "NOTIFICATION_DEDUPE"
-id = "REPLACE_WITH_NOTIFICATION_KV_ID"
+id = "5ebc873fdda0468d911056dfb7ce6d02"

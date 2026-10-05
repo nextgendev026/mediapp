@@ -7,8 +7,8 @@ ALLOWED_ORIGIN = "https://afyacommerce.co.ke"
 
 [[kv_namespaces]]
 binding = "HIE_TOKEN_CACHE"
-id = "REPLACE_WITH_HIE_TOKEN_KV_ID"
+id = "81e1a5f85d504d3780175c3b28d15aff"
 
 [[kv_namespaces]]
 binding = "HIE_REQUEST_CACHE"
-id = "REPLACE_WITH_HIE_REQUEST_KV_ID"
+id = "a43cbb09c7b5417fa5ee327c8246497e"

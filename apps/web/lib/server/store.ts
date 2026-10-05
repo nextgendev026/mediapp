@@ -2,6 +2,11 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { VisitStage, VisitStatus } from '../workflow';
+import {
+  isCloudflareRuntime,
+  loadRemoteState,
+  saveRemoteState
+} from './remote-state';
 
 export type { VisitStage, VisitStatus } from '../workflow';
 export {
@@ -295,6 +300,10 @@ function emptyDb(): Database {
 }
 
 async function persist(db: Database): Promise<void> {
+  if (isCloudflareRuntime()) {
+    const saved = await saveRemoteState(db);
+    if (saved) return;
+  }
   const tmp = `${DB_FILE}.${process.pid}.tmp`;
   await fs.mkdir(DATA_DIR, { recursive: true });
   await fs.mkdir(UPLOAD_DIR, { recursive: true });
@@ -326,11 +335,16 @@ function normalizeLegacy(db: Database): void {
 export async function getDb(): Promise<Database> {
   if (cache) return cache;
   let parsed: Database | null = null;
-  try {
-    const raw = await fs.readFile(DB_FILE, 'utf8');
-    parsed = JSON.parse(raw) as Database;
-  } catch {
-    parsed = null;
+  if (isCloudflareRuntime()) {
+    parsed = await loadRemoteState<Database>();
+  }
+  if (!parsed) {
+    try {
+      const raw = await fs.readFile(DB_FILE, 'utf8');
+      parsed = JSON.parse(raw) as Database;
+    } catch {
+      parsed = null;
+    }
   }
   const db = parsed && parsed.version === 1 ? { ...emptyDb(), ...parsed } : emptyDb();
   normalizeLegacy(db);
